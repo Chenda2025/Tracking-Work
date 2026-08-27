@@ -635,6 +635,16 @@ textarea {
   box-shadow: 0 3px 10px rgba(11, 101, 87, 0.18);
 }
 
+.schedule-card {
+  display: flex;
+  flex-direction: column;
+  gap: 1.35rem;
+  padding: 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: color-mix(in oklab, var(--bg-elevated) 70%, var(--surface));
+}
+
 .schedule-card .duration-face,
 .schedule-card .duration-unit-toggle {
   background: var(--surface);
