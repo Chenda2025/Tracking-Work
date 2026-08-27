@@ -549,10 +549,14 @@ textarea {
   transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
 }
 
+.duration-unit-toggle button:hover {
+  color: var(--ink);
+}
+
 .duration-unit-toggle button[data-active="true"] {
-  background: var(--surface);
-  color: var(--brand-deep);
-  box-shadow: var(--shadow-sm);
+  background: var(--brand);
+  color: white;
+  box-shadow: 0 3px 8px rgba(11, 101, 87, 0.2);
 }
 
 .duration-steppers {
@@ -701,10 +705,14 @@ textarea {
   transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
 }
 
+.status-pills button:hover {
+  color: var(--ink);
+}
+
 .status-pills button[data-active="true"] {
-  background: var(--surface);
-  color: var(--brand-deep);
-  box-shadow: var(--shadow-sm);
+  background: var(--brand);
+  color: white;
+  box-shadow: 0 3px 8px rgba(11, 101, 87, 0.2);
 }
 
 /* —— App shell: phone / iPad / laptop —— */

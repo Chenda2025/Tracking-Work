@@ -32,6 +32,7 @@ import {
   nowClockTime,
   splitClock,
   formatClock,
+  formatShortDate,
   todayISO,
 } from "@/lib/utils";
 
@@ -90,6 +91,7 @@ function ActivitiesContent() {
   const [notes, setNotes] = useState("");
   const [status, setStatus] = useState<ActivityStatus>("planned");
   const [startTime, setStartTime] = useState(nowClockTime);
+  const [activityDate, setActivityDate] = useState(todayISO);
   const [timeUnit, setTimeUnit] = useState<"hours" | "minutes">("hours");
   const [repeat, setRepeat] = useState<ActivityRepeat[]>([]);
   const [activityFolderId, setActivityFolderId] = useState("");
@@ -117,6 +119,7 @@ function ActivitiesContent() {
     setNotes("");
     setStatus("planned");
     setStartTime(nowClockTime());
+    setActivityDate(todayISO());
     setTimeUnit("hours");
     setRepeat([]);
     setActivityFolderId(folderId ?? "");
@@ -141,6 +144,13 @@ function ActivitiesContent() {
     if (nextMinute > 59) nextMinute = 0;
     if (nextMinute < 0) nextMinute = 59;
     setStartTime(joinClock(hour12, nextMinute, period));
+  }
+
+  function setPeriod(period: "am" | "pm") {
+    setStartTime((prev) => {
+      const { hour12, minute } = splitClock(prev);
+      return joinClock(hour12, minute, period);
+    });
   }
 
   function onTimeKeyDown(e: KeyboardEvent<HTMLElement>) {
@@ -211,7 +221,7 @@ function ActivitiesContent() {
       notes,
       category: "work",
       status,
-      date: todayISO(),
+      date: activityDate || todayISO(),
       startTime,
       folderId: targetFolder,
       repeat,
@@ -243,7 +253,8 @@ function ActivitiesContent() {
                 {item.folderId && folderNameById[item.folderId]
                   ? `${folderNameById[item.folderId]} · `
                   : ""}
-                {item.startTime ? `${formatClock(item.startTime)}` : ""}
+                {formatShortDate(item.date)}
+                {item.startTime ? ` · ${formatClock(item.startTime)}` : ""}
                 {item.repeat && item.repeat.length > 0
                   ? ` · ${labelActivityRepeat(item.repeat)}`
                   : ""}
@@ -676,6 +687,16 @@ function ActivitiesContent() {
           </label>
 
           <div className="schedule-card">
+            <label className="block">
+              <span className="form-label">ថ្ងៃ</span>
+              <input
+                className="input"
+                type="date"
+                value={activityDate}
+                onChange={(e) => setActivityDate(e.target.value)}
+                required
+              />
+            </label>
             <div>
               <span className="form-label">ម៉ោងចាប់ផ្តើម</span>
               <div className="duration-row">
@@ -724,18 +745,24 @@ function ActivitiesContent() {
                   <button
                     type="button"
                     data-active={clock.period === "am"}
-                    onClick={() =>
-                      setStartTime(joinClock(clock.hour12, clock.minute, "am"))
-                    }
+                    aria-pressed={clock.period === "am"}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setPeriod("am");
+                    }}
                   >
                     ព្រឹក
                   </button>
                   <button
                     type="button"
                     data-active={clock.period === "pm"}
-                    onClick={() =>
-                      setStartTime(joinClock(clock.hour12, clock.minute, "pm"))
-                    }
+                    aria-pressed={clock.period === "pm"}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setPeriod("pm");
+                    }}
                   >
                     ល្ងាច
                   </button>
@@ -778,7 +805,12 @@ function ActivitiesContent() {
                   key={s.value}
                   type="button"
                   data-active={status === s.value}
-                  onClick={() => setStatus(s.value)}
+                  aria-pressed={status === s.value}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setStatus(s.value);
+                  }}
                 >
                   {s.label}
                 </button>
