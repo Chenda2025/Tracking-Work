@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, Suspense, useMemo, useState } from "react";
+import { FormEvent, KeyboardEvent, Suspense, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CalendarDays, ChevronRight, Folder, FolderPlus, Plus, Trash2 } from "lucide-react";
@@ -11,13 +11,13 @@ import { PageHeader } from "@/components/PageHeader";
 import { StatCard } from "@/components/StatCard";
 import { useTrackingStore } from "@/lib/store";
 import type {
-  ActivityCategory,
+  ActivityRepeat,
   ActivityStatus,
   FolderColor,
   FolderPriority,
 } from "@/lib/types";
 import {
-  ACTIVITY_CATEGORIES,
+  ACTIVITY_REPEATS,
   ACTIVITY_STATUSES,
   activityStats,
   FOLDER_COLORS,
@@ -25,9 +25,13 @@ import {
   folderColorMeta,
   getChildFolders,
   getFolderPath,
-  isDateToday,
-  labelActivityCategory,
+  isActivityForToday,
+  joinClock,
+  labelActivityRepeat,
   labelFolderPriority,
+  nowClockTime,
+  splitClock,
+  formatClock,
   todayISO,
 } from "@/lib/utils";
 
@@ -84,13 +88,15 @@ function ActivitiesContent() {
 
   const [title, setTitle] = useState("");
   const [notes, setNotes] = useState("");
-  const [category, setCategory] = useState<ActivityCategory>("work");
   const [status, setStatus] = useState<ActivityStatus>("planned");
-  const [durationMinutes, setDurationMinutes] = useState(30);
+  const [startTime, setStartTime] = useState(nowClockTime);
+  const [timeUnit, setTimeUnit] = useState<"hours" | "minutes">("hours");
+  const [repeat, setRepeat] = useState<ActivityRepeat[]>([]);
   const [activityFolderId, setActivityFolderId] = useState("");
+  const timeFaceRef = useRef<HTMLDivElement>(null);
 
   const todayActivities = useMemo(() => {
-    const list = activities.filter((a) => isDateToday(a.date));
+    const list = activities.filter((a) => isActivityForToday(a));
     return [...list].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }, [activities]);
 
@@ -109,10 +115,54 @@ function ActivitiesContent() {
   function resetActivityForm() {
     setTitle("");
     setNotes("");
-    setCategory("work");
     setStatus("planned");
-    setDurationMinutes(30);
+    setStartTime(nowClockTime());
+    setTimeUnit("hours");
+    setRepeat([]);
     setActivityFolderId(folderId ?? "");
+  }
+
+  const clock = splitClock(startTime);
+
+  function focusTimeFace() {
+    timeFaceRef.current?.focus();
+  }
+
+  function stepClock(direction: 1 | -1) {
+    const { hour12, minute, period } = splitClock(startTime);
+    if (timeUnit === "hours") {
+      let next = hour12 + direction;
+      if (next > 12) next = 1;
+      if (next < 1) next = 12;
+      setStartTime(joinClock(next, minute, period));
+      return;
+    }
+    let nextMinute = minute + direction;
+    if (nextMinute > 59) nextMinute = 0;
+    if (nextMinute < 0) nextMinute = 59;
+    setStartTime(joinClock(hour12, nextMinute, period));
+  }
+
+  function onTimeKeyDown(e: KeyboardEvent<HTMLElement>) {
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      stepClock(1);
+      return;
+    }
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      stepClock(-1);
+      return;
+    }
+    if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      setTimeUnit("hours");
+      return;
+    }
+    if (e.key === "ArrowRight") {
+      e.preventDefault();
+      setTimeUnit("minutes");
+    }
   }
 
   function openFolderModal() {
@@ -159,11 +209,12 @@ function ActivitiesContent() {
     addActivity({
       title,
       notes,
-      category,
+      category: "work",
       status,
       date: todayISO(),
-      durationMinutes,
+      startTime,
       folderId: targetFolder,
+      repeat,
     });
     resetActivityForm();
     setActivityOpen(false);
@@ -192,8 +243,10 @@ function ActivitiesContent() {
                 {item.folderId && folderNameById[item.folderId]
                   ? `${folderNameById[item.folderId]} · `
                   : ""}
-                {labelActivityCategory(item.category)} · {item.durationMinutes}{" "}
-                នាទី
+                {item.startTime ? `${formatClock(item.startTime)}` : ""}
+                {item.repeat && item.repeat.length > 0
+                  ? ` · ${labelActivityRepeat(item.repeat)}`
+                  : ""}
               </p>
               {item.notes ? (
                 <p className="mt-1 text-sm text-ink-soft">{item.notes}</p>
@@ -579,15 +632,12 @@ function ActivitiesContent() {
         title="សកម្មភាពថ្មី"
         onClose={() => setActivityOpen(false)}
       >
-        <form className="space-y-3.5" onSubmit={onCreateActivity}>
-          <p className="rounded-xl bg-brand-soft px-3 py-2 text-sm text-brand-deep">
-            {currentFolder
-              ? `រក្សាទុកក្នុងថត៖ ${currentFolder.name} · ថ្ងៃនេះ`
-              : "កត់ត្រាការងារសម្រាប់ថ្ងៃនេះ"}
-          </p>
-          {!currentFolder ? (
-            <label className="block space-y-1.5">
-              <span className="text-sm font-medium">ថត</span>
+        <form className="form-activity" onSubmit={onCreateActivity}>
+          {currentFolder ? (
+            <p className="form-hint">ថត៖ {currentFolder.name}</p>
+          ) : (
+            <label className="block">
+              <span className="form-label">ថត</span>
               <select
                 className="input"
                 value={activityFolderId}
@@ -604,9 +654,9 @@ function ActivitiesContent() {
                 ))}
               </select>
             </label>
-          ) : null}
-          <label className="block space-y-1.5">
-            <span className="text-sm font-medium">ចំណងជើង</span>
+          )}
+          <label className="block">
+            <span className="form-label">ចំណងជើង</span>
             <input
               className="input"
               value={title}
@@ -615,58 +665,128 @@ function ActivitiesContent() {
               required
             />
           </label>
-          <label className="block space-y-1.5">
-            <span className="text-sm font-medium">កំណត់ចំណាំ</span>
+          <label className="block">
+            <span className="form-label">កំណត់ចំណាំ</span>
             <textarea
-              className="input min-h-24"
+              className="input min-h-20"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="ព័ត៌មានបន្ថែម (ស្រេចចិត្ត)"
             />
           </label>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block space-y-1.5">
-              <span className="text-sm font-medium">ប្រភេទ</span>
-              <select
-                className="input"
-                value={category}
-                onChange={(e) =>
-                  setCategory(e.target.value as ActivityCategory)
-                }
-              >
-                {ACTIVITY_CATEGORIES.map((c) => (
-                  <option key={c.value} value={c.value}>
-                    {c.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block space-y-1.5">
-              <span className="text-sm font-medium">ស្ថានភាព</span>
-              <select
-                className="input"
-                value={status}
-                onChange={(e) => setStatus(e.target.value as ActivityStatus)}
-              >
-                {ACTIVITY_STATUSES.map((s) => (
-                  <option key={s.value} value={s.value}>
-                    {s.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block space-y-1.5 sm:col-span-2">
-              <span className="text-sm font-medium">រយៈពេល (នាទី)</span>
-              <input
-                className="input"
-                type="number"
-                min={0}
-                value={durationMinutes}
-                onChange={(e) => setDurationMinutes(Number(e.target.value))}
-              />
-            </label>
+
+          <div className="schedule-card">
+            <div>
+              <span className="form-label">ម៉ោងចាប់ផ្តើម</span>
+              <div className="duration-row">
+                <div
+                  ref={timeFaceRef}
+                  className="duration-face"
+                  role="group"
+                  tabIndex={0}
+                  aria-label="ម៉ោងចាប់ផ្តើម។ ប្រើព្រួញឡើង និងចុះដើម្បីផ្លាស់ប្តូរ។"
+                  onKeyDown={onTimeKeyDown}
+                >
+                  <button
+                    type="button"
+                    className="duration-seg"
+                    data-active={timeUnit === "hours"}
+                    aria-pressed={timeUnit === "hours"}
+                    aria-label="ម៉ោង"
+                    onClick={() => {
+                      setTimeUnit("hours");
+                      focusTimeFace();
+                    }}
+                    onKeyDown={onTimeKeyDown}
+                  >
+                    {clock.hour12}
+                  </button>
+                  <span className="duration-colon" aria-hidden>
+                    :
+                  </span>
+                  <button
+                    type="button"
+                    className="duration-seg"
+                    data-active={timeUnit === "minutes"}
+                    aria-pressed={timeUnit === "minutes"}
+                    aria-label="នាទី"
+                    onClick={() => {
+                      setTimeUnit("minutes");
+                      focusTimeFace();
+                    }}
+                    onKeyDown={onTimeKeyDown}
+                  >
+                    {String(clock.minute).padStart(2, "0")}
+                  </button>
+                </div>
+
+                <div className="duration-unit-toggle" role="group" aria-label="ព្រឹក ឬ ល្ងាច">
+                  <button
+                    type="button"
+                    data-active={clock.period === "am"}
+                    onClick={() =>
+                      setStartTime(joinClock(clock.hour12, clock.minute, "am"))
+                    }
+                  >
+                    ព្រឹក
+                  </button>
+                  <button
+                    type="button"
+                    data-active={clock.period === "pm"}
+                    onClick={() =>
+                      setStartTime(joinClock(clock.hour12, clock.minute, "pm"))
+                    }
+                  >
+                    ល្ងាច
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="day-chips" role="group" aria-label="ថ្ងៃធ្វើម្តងទៀត">
+              {ACTIVITY_REPEATS.map((r) => {
+                const checked = repeat.includes(r.value);
+                return (
+                  <button
+                    key={r.value}
+                    type="button"
+                    className="day-chip"
+                    data-active={checked}
+                    aria-pressed={checked}
+                    title={r.label}
+                    aria-label={r.label}
+                    onClick={() => {
+                      setRepeat((prev) =>
+                        prev.includes(r.value)
+                          ? prev.filter((day) => day !== r.value)
+                          : [...prev, r.value]
+                      );
+                    }}
+                  >
+                    {r.short}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-          <div className="flex justify-end gap-2 border-t border-line pt-4">
+
+          <div>
+            <span className="form-label">ស្ថានភាព</span>
+            <div className="status-pills" role="group" aria-label="ស្ថានភាព">
+              {ACTIVITY_STATUSES.map((s) => (
+                <button
+                  key={s.value}
+                  type="button"
+                  data-active={status === s.value}
+                  onClick={() => setStatus(s.value)}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="form-actions">
             <button
               type="button"
               className="btn btn-ghost"

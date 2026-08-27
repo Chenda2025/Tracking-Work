@@ -446,22 +446,256 @@ textarea {
 @keyframes rise-in {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(14px) scale(0.98);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateY(0) scale(1);
   }
 }
 
 .animate-rise {
-  animation: rise-in 0.4s ease both;
+  animation: rise-in 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .stagger-1 { animation-delay: 0.04s; }
 .stagger-2 { animation-delay: 0.08s; }
 .stagger-3 { animation-delay: 0.12s; }
 .stagger-4 { animation-delay: 0.16s; }
+
+.duration-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.duration-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+
+.duration-face {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--bg-elevated);
+  outline: none;
+}
+
+.duration-face:focus-visible {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px rgba(11, 101, 87, 0.12);
+}
+
+.duration-seg {
+  min-width: 3.1rem;
+  border: none;
+  border-radius: 12px;
+  padding: 0.3rem 0.45rem;
+  background: transparent;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1.1;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.duration-seg[data-active="true"] {
+  background: var(--brand);
+  color: white;
+  box-shadow: 0 4px 12px rgba(11, 101, 87, 0.22);
+}
+
+.duration-colon {
+  padding-bottom: 0.15rem;
+  color: var(--ink-soft);
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.duration-unit-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  flex: 0 0 9.5rem;
+  gap: 0.2rem;
+  padding: 0.25rem;
+  border-radius: 14px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--line);
+}
+
+.duration-unit-toggle button {
+  border: none;
+  border-radius: 9px;
+  min-height: 2.5rem;
+  padding: 0 0.45rem;
+  background: transparent;
+  color: var(--ink-muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.duration-unit-toggle button[data-active="true"] {
+  background: var(--surface);
+  color: var(--brand-deep);
+  box-shadow: var(--shadow-sm);
+}
+
+.duration-steppers {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.duration-steppers button {
+  min-height: 2.5rem;
+}
+
+.duration-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.duration-preset {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-muted);
+  padding: 0.35rem 0.7rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.duration-preset[data-active="true"] {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+  color: var(--brand-deep);
+}
+
+.repeat-row {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.repeat-row > span {
+  flex-shrink: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.day-chips {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.3rem;
+  width: 100%;
+}
+
+.day-chip {
+  aspect-ratio: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  background: var(--bg-elevated);
+  color: var(--ink-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease,
+    transform 0.2s ease;
+}
+
+.day-chip:hover {
+  color: var(--ink);
+}
+
+.day-chip[data-active="true"] {
+  background: var(--brand);
+  color: white;
+  box-shadow: 0 3px 10px rgba(11, 101, 87, 0.18);
+}
+
+.schedule-card .duration-face,
+.schedule-card .duration-unit-toggle {
+  background: var(--surface);
+}
+
+.form-activity {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.form-label {
+  display: block;
+  margin-bottom: 0.4rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--ink-muted);
+}
+
+.form-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding-top: 0.25rem;
+}
+
+.status-pills {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.35rem;
+  padding: 0.28rem;
+  border-radius: 14px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--line);
+}
+
+.status-pills button {
+  border: none;
+  border-radius: 10px;
+  min-height: 2.4rem;
+  padding: 0 0.4rem;
+  background: transparent;
+  color: var(--ink-muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.status-pills button[data-active="true"] {
+  background: var(--surface);
+  color: var(--brand-deep);
+  box-shadow: var(--shadow-sm);
+}
 
 /* —— App shell: phone / iPad / laptop —— */
 .app-shell {
@@ -704,7 +938,7 @@ textarea {
 .modal-panel {
   max-height: min(92dvh, 44rem);
   overflow: auto;
-  padding: 1.1rem 1.1rem 1.25rem;
+  padding: 1.15rem 1.15rem 1.2rem;
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
   -webkit-overflow-scrolling: touch;

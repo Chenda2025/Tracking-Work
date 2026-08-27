@@ -19,10 +19,11 @@ import {
   formatMonth,
   formatShortDate,
   goalProgress,
-  isDateToday,
+  isActivityForToday,
   labelActivityCategory,
   labelActivityStatus,
   labelFinanceCategory,
+  formatClock,
   sumExpense,
   sumIncome,
 } from "@/lib/utils";
@@ -40,7 +41,7 @@ function DashboardContent() {
   const transactions = useTrackingStore((s) => s.transactions);
   const goals = useTrackingStore((s) => s.goals);
 
-  const todayActivities = activities.filter((a) => isDateToday(a.date));
+  const todayActivities = activities.filter((a) => isActivityForToday(a));
   const monthTx = filterThisMonth(transactions);
   const income = sumIncome(monthTx);
   const expense = sumExpense(monthTx);
@@ -195,7 +196,7 @@ function DashboardContent() {
                     </p>
                   </div>
                   <span className="badge bg-brand-soft text-brand-deep">
-                    {item.durationMinutes} នាទី
+                    {item.startTime ? formatClock(item.startTime) : labelActivityStatus(item.status)}
                   </span>
                 </li>
               ))}

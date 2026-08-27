@@ -6,6 +6,7 @@ import type {
   Activity,
   ActivityCategory,
   ActivityFolder,
+  ActivityRepeat,
   ActivityStatus,
   FamilyGoal,
   FinanceCategory,
@@ -15,7 +16,7 @@ import type {
   Transaction,
   TransactionType,
 } from "./types";
-import { todayISO, uid } from "./utils";
+import { todayISO, uid, normalizeRepeatDays } from "./utils";
 
 interface TrackingStore {
   activities: Activity[];
@@ -32,7 +33,9 @@ interface TrackingStore {
     folderId?: string | null;
     status?: ActivityStatus;
     date?: string;
+    startTime?: string;
     durationMinutes?: number;
+    repeat?: ActivityRepeat[];
   }) => void;
   updateActivity: (id: string, patch: Partial<Omit<Activity, "id" | "createdAt">>) => void;
   deleteActivity: (id: string) => void;
@@ -95,7 +98,9 @@ export const useTrackingStore = create<TrackingStore>()(
           folderId: input.folderId ?? null,
           status: input.status ?? "planned",
           date: input.date ?? todayISO(),
+          startTime: input.startTime ?? "",
           durationMinutes: input.durationMinutes ?? 0,
+          repeat: input.repeat ?? [],
           createdAt: new Date().toISOString(),
         };
         set({ activities: [activity, ...get().activities] });
@@ -288,6 +293,9 @@ export const useTrackingStore = create<TrackingStore>()(
             ...a,
             folderId: a.folderId ?? null,
             category: (a.category as ActivityCategory) || "work",
+            repeat: normalizeRepeatDays(
+              a.repeat as ActivityRepeat[] | ActivityRepeat | "none" | undefined
+            ),
           })),
           activityFolders: (p.activityFolders ?? []).map((f) => ({
             ...f,

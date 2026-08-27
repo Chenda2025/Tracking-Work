@@ -8,6 +8,15 @@ export type ActivityCategory =
 
 export type ActivityStatus = "planned" | "in_progress" | "done";
 
+export type ActivityRepeat =
+  | "monday"
+  | "tuesday"
+  | "wednesday"
+  | "thursday"
+  | "friday"
+  | "saturday"
+  | "sunday";
+
 export type FolderColor =
   | "teal"
   | "blue"
@@ -34,7 +43,9 @@ export interface Activity {
   folderId: string | null;
   status: ActivityStatus;
   date: string; // YYYY-MM-DD
+  startTime?: string; // HH:mm 24h
   durationMinutes: number;
+  repeat?: ActivityRepeat[];
   createdAt: string;
 }
 

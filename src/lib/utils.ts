@@ -3,6 +3,7 @@ import { km } from "date-fns/locale";
 import type {
   Activity,
   ActivityFolder,
+  ActivityRepeat,
   FamilyGoal,
   FolderColor,
   FolderPriority,
@@ -15,6 +16,50 @@ export function uid(): string {
 
 export function todayISO(): string {
   return format(new Date(), "yyyy-MM-dd");
+}
+
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+export type ClockPeriod = "am" | "pm";
+
+export function nowClockTime(): string {
+  const d = new Date();
+  const minutes = Math.round(d.getMinutes() / 5) * 5;
+  const extraHour = minutes === 60 ? 1 : 0;
+  const h = (d.getHours() + extraHour) % 24;
+  const m = minutes === 60 ? 0 : minutes;
+  return `${pad2(h)}:${pad2(m)}`;
+}
+
+export function splitClock(time: string): {
+  hour12: number;
+  minute: number;
+  period: ClockPeriod;
+} {
+  const [rawH = "8", rawM = "0"] = (time || "08:00").split(":");
+  const hour24 = Math.min(23, Math.max(0, Number(rawH) || 0));
+  const minute = Math.min(59, Math.max(0, Number(rawM) || 0));
+  const period: ClockPeriod = hour24 >= 12 ? "pm" : "am";
+  const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
+  return { hour12, minute, period };
+}
+
+export function joinClock(
+  hour12: number,
+  minute: number,
+  period: ClockPeriod
+): string {
+  let hour24 = hour12 % 12;
+  if (period === "pm") hour24 += 12;
+  return `${pad2(hour24)}:${pad2(minute)}`;
+}
+
+export function formatClock(time?: string): string {
+  if (!time) return "";
+  const { hour12, minute, period } = splitClock(time);
+  return `${hour12}:${pad2(minute)} ${period === "am" ? "ព្រឹក" : "ល្ងាច"}`;
 }
 
 export function formatMoney(amount: number, currency = "USD"): string {
@@ -43,6 +88,42 @@ export function isDateToday(date: string): boolean {
   } catch {
     return false;
   }
+}
+
+const REPEAT_WEEKDAY: Record<ActivityRepeat, number> = {
+  sunday: 0,
+  monday: 1,
+  tuesday: 2,
+  wednesday: 3,
+  thursday: 4,
+  friday: 5,
+  saturday: 6,
+};
+
+const WEEKDAYS: ActivityRepeat[] = [
+  "monday",
+  "tuesday",
+  "wednesday",
+  "thursday",
+  "friday",
+  "saturday",
+  "sunday",
+];
+
+export function normalizeRepeatDays(
+  value?: ActivityRepeat[] | ActivityRepeat | "none" | null
+): ActivityRepeat[] {
+  if (!value || value === "none") return [];
+  const list = Array.isArray(value) ? value : [value];
+  return WEEKDAYS.filter((day) => list.includes(day));
+}
+
+export function isActivityForToday(activity: Activity, now = new Date()): boolean {
+  if (isDateToday(activity.date)) return true;
+  const days = normalizeRepeatDays(activity.repeat);
+  if (days.length === 0) return false;
+  const today = now.getDay();
+  return days.some((day) => REPEAT_WEEKDAY[day] === today);
 }
 
 export function filterThisMonth<T extends { date: string }>(items: T[]): T[] {
@@ -176,6 +257,30 @@ export const ACTIVITY_STATUSES = [
   { value: "in_progress", label: "កំពុងធ្វើ" },
   { value: "done", label: "រួចរាល់" },
 ] as const;
+
+export const ACTIVITY_REPEATS: {
+  value: ActivityRepeat;
+  label: string;
+  short: string;
+}[] = [
+  { value: "monday", label: "រៀងរាល់ថ្ងៃច័ន្ទ", short: "ច" },
+  { value: "tuesday", label: "រៀងរាល់ថ្ងៃអង្គារ", short: "អ" },
+  { value: "wednesday", label: "រៀងរាល់ថ្ងៃពុធ", short: "ព" },
+  { value: "thursday", label: "រៀងរាល់ថ្ងៃព្រហស្បតិ៍", short: "ព្រ" },
+  { value: "friday", label: "រៀងរាល់ថ្ងៃសុក្រ", short: "សុ" },
+  { value: "saturday", label: "រៀងរាល់ថ្ងៃសៅរ៍", short: "សៅ" },
+  { value: "sunday", label: "រៀងរាល់ថ្ងៃអាទិត្យ", short: "អា" },
+];
+
+export function labelActivityRepeat(
+  value?: ActivityRepeat[] | ActivityRepeat | "none" | null
+): string {
+  const days = normalizeRepeatDays(value);
+  if (days.length === 0) return "";
+  return days
+    .map((day) => ACTIVITY_REPEATS.find((r) => r.value === day)?.label ?? day)
+    .join(" · ");
+}
 
 export const INCOME_CATEGORIES = [
   { value: "salary", label: "ប្រាក់ខែ" },
