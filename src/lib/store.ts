@@ -8,11 +8,13 @@ import type {
   ActivityFolder,
   ActivityRepeat,
   ActivityStatus,
+  CalendarEvent,
   FamilyGoal,
   FinanceCategory,
   FolderColor,
   FolderPriority,
   GoalStatus,
+  Reminder,
   Transaction,
   TransactionType,
 } from "./types";
@@ -23,11 +25,14 @@ interface TrackingStore {
   transactions: Transaction[];
   goals: FamilyGoal[];
   activityFolders: ActivityFolder[];
+  events: CalendarEvent[];
+  reminders: Reminder[];
   hydrated: boolean;
   setHydrated: (value: boolean) => void;
 
   addActivity: (input: {
     title: string;
+    location?: string;
     notes?: string;
     category: ActivityCategory;
     folderId?: string | null;
@@ -77,6 +82,30 @@ interface TrackingStore {
   contributeGoal: (id: string, amount: number) => void;
   deleteGoal: (id: string) => void;
   setGoalStatus: (id: string, status: GoalStatus) => void;
+
+  addEvent: (input: {
+    title: string;
+    location?: string;
+    notes?: string;
+    date?: string;
+    startTime?: string;
+    endTime?: string;
+    allDay?: boolean;
+    repeat?: ActivityRepeat[];
+  }) => void;
+  updateEvent: (id: string, patch: Partial<Omit<CalendarEvent, "id" | "createdAt">>) => void;
+  deleteEvent: (id: string) => void;
+
+  addReminder: (input: {
+    title: string;
+    notes?: string;
+    dueDate?: string;
+    dueTime?: string;
+    repeat?: ActivityRepeat[];
+  }) => void;
+  updateReminder: (id: string, patch: Partial<Omit<Reminder, "id" | "createdAt">>) => void;
+  toggleReminder: (id: string) => void;
+  deleteReminder: (id: string) => void;
 }
 
 export const useTrackingStore = create<TrackingStore>()(
@@ -86,6 +115,8 @@ export const useTrackingStore = create<TrackingStore>()(
       transactions: [],
       goals: [],
       activityFolders: [],
+      events: [],
+      reminders: [],
       hydrated: false,
       setHydrated: (value) => set({ hydrated: value }),
 
@@ -93,6 +124,7 @@ export const useTrackingStore = create<TrackingStore>()(
         const activity: Activity = {
           id: uid(),
           title: input.title.trim(),
+          location: input.location?.trim() ?? "",
           notes: input.notes?.trim() ?? "",
           category: input.category,
           folderId: input.folderId ?? null,
@@ -275,6 +307,69 @@ export const useTrackingStore = create<TrackingStore>()(
           ),
         });
       },
+
+      addEvent: (input) => {
+        const allDay = Boolean(input.allDay);
+        const event: CalendarEvent = {
+          id: uid(),
+          title: input.title.trim(),
+          location: input.location?.trim() ?? "",
+          notes: input.notes?.trim() ?? "",
+          date: input.date ?? todayISO(),
+          startTime: allDay ? "" : input.startTime ?? "",
+          endTime: allDay ? "" : input.endTime ?? "",
+          allDay,
+          repeat: input.repeat ?? [],
+          createdAt: new Date().toISOString(),
+        };
+        set({ events: [event, ...get().events] });
+      },
+
+      updateEvent: (id, patch) => {
+        set({
+          events: get().events.map((item) =>
+            item.id === id ? { ...item, ...patch } : item
+          ),
+        });
+      },
+
+      deleteEvent: (id) => {
+        set({ events: get().events.filter((item) => item.id !== id) });
+      },
+
+      addReminder: (input) => {
+        const reminder: Reminder = {
+          id: uid(),
+          title: input.title.trim(),
+          notes: input.notes?.trim() ?? "",
+          dueDate: input.dueDate ?? todayISO(),
+          dueTime: input.dueTime ?? "",
+          completed: false,
+          repeat: input.repeat ?? [],
+          createdAt: new Date().toISOString(),
+        };
+        set({ reminders: [reminder, ...get().reminders] });
+      },
+
+      updateReminder: (id, patch) => {
+        set({
+          reminders: get().reminders.map((item) =>
+            item.id === id ? { ...item, ...patch } : item
+          ),
+        });
+      },
+
+      toggleReminder: (id) => {
+        set({
+          reminders: get().reminders.map((item) =>
+            item.id === id ? { ...item, completed: !item.completed } : item
+          ),
+        });
+      },
+
+      deleteReminder: (id) => {
+        set({ reminders: get().reminders.filter((item) => item.id !== id) });
+      },
     }),
     {
       name: "steady-personal-tracking",
@@ -283,6 +378,8 @@ export const useTrackingStore = create<TrackingStore>()(
         transactions: state.transactions,
         goals: state.goals,
         activityFolders: state.activityFolders,
+        events: state.events,
+        reminders: state.reminders,
       }),
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<TrackingStore>;
@@ -300,6 +397,26 @@ export const useTrackingStore = create<TrackingStore>()(
           activityFolders: (p.activityFolders ?? []).map((f) => ({
             ...f,
             parentId: f.parentId ?? null,
+          })),
+          events: (p.events ?? []).map((e) => ({
+            ...e,
+            location: e.location ?? "",
+            notes: e.notes ?? "",
+            allDay: Boolean(e.allDay),
+            startTime: e.startTime ?? "",
+            endTime: e.endTime ?? "",
+            repeat: normalizeRepeatDays(
+              e.repeat as ActivityRepeat[] | ActivityRepeat | "none" | undefined
+            ),
+          })),
+          reminders: (p.reminders ?? []).map((r) => ({
+            ...r,
+            notes: r.notes ?? "",
+            dueTime: r.dueTime ?? "",
+            completed: Boolean(r.completed),
+            repeat: normalizeRepeatDays(
+              r.repeat as ActivityRepeat[] | ActivityRepeat | "none" | undefined
+            ),
           })),
         };
       },

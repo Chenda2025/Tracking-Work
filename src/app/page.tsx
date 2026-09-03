@@ -4,6 +4,7 @@ import Link from "next/link";
 import {
   Activity,
   ArrowRight,
+  CalendarDays,
   Goal,
   Plus,
   TrendingDown,
@@ -26,6 +27,9 @@ import {
   formatClock,
   sumExpense,
   sumIncome,
+  todayISO,
+  eventsForDate,
+  remindersForDate,
 } from "@/lib/utils";
 
 export default function DashboardPage() {
@@ -40,8 +44,12 @@ function DashboardContent() {
   const activities = useTrackingStore((s) => s.activities);
   const transactions = useTrackingStore((s) => s.transactions);
   const goals = useTrackingStore((s) => s.goals);
+  const events = useTrackingStore((s) => s.events);
+  const reminders = useTrackingStore((s) => s.reminders);
 
   const todayActivities = activities.filter((a) => isActivityForToday(a));
+  const todayEvents = eventsForDate(events, todayISO());
+  const todayReminders = remindersForDate(reminders, todayISO()).filter((r) => !r.completed);
   const monthTx = filterThisMonth(transactions);
   const income = sumIncome(monthTx);
   const expense = sumExpense(monthTx);
@@ -72,6 +80,9 @@ function DashboardContent() {
           <div className="flex flex-wrap gap-2">
             <Link href="/activities" className="btn btn-secondary">
               <Plus size={15} /> សកម្មភាព
+            </Link>
+            <Link href="/calendar" className="btn btn-secondary">
+              <Plus size={15} /> ប្រតិទិន
             </Link>
             <Link href="/finance" className="btn btn-secondary">
               <Plus size={15} /> ប្រតិបត្តិការ
@@ -134,7 +145,7 @@ function DashboardContent() {
       </section>
 
       {/* KPI row */}
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard
           icon={<Activity size={16} />}
           label="សកម្មភាពថ្ងៃនេះ"
@@ -142,6 +153,14 @@ function DashboardContent() {
           hint={`រួចរាល់ ${stats.rate}% · ${stats.minutes} នាទី`}
           tone="brand"
           href="/activities"
+        />
+        <KpiCard
+          icon={<CalendarDays size={16} />}
+          label="ប្រតិទិនថ្ងៃនេះ"
+          value={String(todayEvents.length + todayReminders.length)}
+          hint={`${todayEvents.length} ព្រឹត្តិការណ៍ · ${todayReminders.length} ការរំលឹក`}
+          tone="brand"
+          href="/calendar"
         />
         <KpiCard
           icon={<Wallet size={16} />}

@@ -1,24 +1,27 @@
 import type { Metadata, Viewport } from "next";
-import { Battambang, Moul, Noto_Sans_Khmer } from "next/font/google";
+import localFont from "next/font/local";
 import { AppShell } from "@/components/AppShell";
 import "./globals.css";
 
-const notoKhmer = Noto_Sans_Khmer({
+const notoKhmer = localFont({
+  src: [{ path: "../fonts/NotoSansKhmer.ttf", weight: "100 900", style: "normal" }],
   variable: "--font-body",
-  subsets: ["khmer"],
-  weight: ["400", "500", "600", "700"],
+  display: "swap",
 });
 
-const moul = Moul({
+const moul = localFont({
+  src: [{ path: "../fonts/Moul-Regular.ttf", weight: "400", style: "normal" }],
   variable: "--font-moul",
-  subsets: ["khmer"],
-  weight: "400",
+  display: "swap",
 });
 
-const battambang = Battambang({
+const battambang = localFont({
+  src: [
+    { path: "../fonts/Battambang-Regular.ttf", weight: "400", style: "normal" },
+    { path: "../fonts/Battambang-Bold.ttf", weight: "700", style: "normal" },
+  ],
   variable: "--font-battambang",
-  subsets: ["khmer"],
-  weight: ["400", "700"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {

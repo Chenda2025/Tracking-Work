@@ -38,6 +38,7 @@ export interface ActivityFolder {
 export interface Activity {
   id: string;
   title: string;
+  location?: string;
   notes: string;
   category: ActivityCategory;
   folderId: string | null;
@@ -91,10 +92,36 @@ export interface FamilyGoal {
   createdAt: string;
 }
 
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  location?: string;
+  notes: string;
+  date: string; // YYYY-MM-DD
+  startTime?: string; // HH:mm 24h; empty when allDay
+  endTime?: string;
+  allDay: boolean;
+  repeat?: ActivityRepeat[];
+  createdAt: string;
+}
+
+export interface Reminder {
+  id: string;
+  title: string;
+  notes: string;
+  dueDate: string; // YYYY-MM-DD
+  dueTime?: string; // HH:mm 24h optional
+  completed: boolean;
+  repeat?: ActivityRepeat[];
+  createdAt: string;
+}
+
 export interface AppState {
   activities: Activity[];
   transactions: Transaction[];
   goals: FamilyGoal[];
   activityFolders: ActivityFolder[];
+  events: CalendarEvent[];
+  reminders: Reminder[];
   hydrated: boolean;
 }

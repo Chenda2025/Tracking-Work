@@ -7,7 +7,6 @@ import { CalendarDays, ChevronRight, Folder, FolderPlus, Plus, Trash2 } from "lu
 import { EmptyState } from "@/components/EmptyState";
 import { HydrationGate } from "@/components/HydrationGate";
 import { Modal } from "@/components/Modal";
-import { PageHeader } from "@/components/PageHeader";
 import { StatCard } from "@/components/StatCard";
 import { useTrackingStore } from "@/lib/store";
 import type {
@@ -88,6 +87,7 @@ function ActivitiesContent() {
   const [folderError, setFolderError] = useState("");
 
   const [title, setTitle] = useState("");
+  const [location, setLocation] = useState("");
   const [notes, setNotes] = useState("");
   const [status, setStatus] = useState<ActivityStatus>("planned");
   const [startTime, setStartTime] = useState(nowClockTime);
@@ -116,6 +116,7 @@ function ActivitiesContent() {
 
   function resetActivityForm() {
     setTitle("");
+    setLocation("");
     setNotes("");
     setStatus("planned");
     setStartTime(nowClockTime());
@@ -189,6 +190,15 @@ function ActivitiesContent() {
     setActivityOpen(true);
   }
 
+  function handleAddActivity() {
+    if (folders.length === 0) {
+      setTab("folders");
+      openFolderModal();
+      return;
+    }
+    openActivityModal();
+  }
+
   function onCreateFolder(e: FormEvent) {
     e.preventDefault();
     setFolderError("");
@@ -218,6 +228,7 @@ function ActivitiesContent() {
     if (!title.trim() || !targetFolder) return;
     addActivity({
       title,
+      location,
       notes,
       category: "work",
       status,
@@ -232,13 +243,16 @@ function ActivitiesContent() {
 
   function renderActivityList(
     items: typeof visible,
-    emptyDescription: string
+    emptyTitle: string,
+    emptyDescription: string,
+    emptyAction?: React.ReactNode
   ) {
     if (items.length === 0) {
       return (
         <EmptyState
-          title="មិនទាន់មានសកម្មភាពថ្ងៃនេះ"
+          title={emptyTitle}
           description={emptyDescription}
+          action={emptyAction}
         />
       );
     }
@@ -249,6 +263,9 @@ function ActivitiesContent() {
           <li key={item.id} className="list-row items-center">
             <div className="min-w-0 flex-1">
               <p className="font-medium">{item.title}</p>
+              {item.location ? (
+                <p className="mt-0.5 text-sm text-ink-muted">{item.location}</p>
+              ) : null}
               <p className="mt-0.5 text-sm text-ink-muted">
                 {item.folderId && folderNameById[item.folderId]
                   ? `${folderNameById[item.folderId]} · `
@@ -359,83 +376,87 @@ function ActivitiesContent() {
 
   return (
     <div className="page">
-      <PageHeader
-        title={currentFolder ? currentFolder.name : "សកម្មភាព"}
-        action={
-          <div className="flex flex-wrap gap-2">
-            {atRoot && activeTab === "folders" ? (
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={openFolderModal}
-              >
-                <FolderPlus size={16} /> បន្ថែមថត
-              </button>
-            ) : null}
-            {!isSubfolder && currentFolder ? (
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={openFolderModal}
-              >
-                <FolderPlus size={16} /> បន្ថែមថតរង
-              </button>
-            ) : null}
-            {atRoot && activeTab === "today" ? (
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={openActivityModal}
-                disabled={folders.length === 0}
-              >
-                <Plus size={16} /> បន្ថែមសកម្មភាព
-              </button>
-            ) : null}
-            {currentFolder ? (
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={openActivityModal}
-              >
-                <Plus size={16} /> បន្ថែមសកម្មភាព
-              </button>
-            ) : null}
-          </div>
-        }
-      />
-
-      {atRoot ? (
-        <div className="flex w-full justify-stretch sm:justify-end">
-          <div className="tabs" role="tablist" aria-label="ផ្ទាំងសកម្មភាព">
-            <button
-              type="button"
-              role="tab"
-              className="tab"
-              data-active={activeTab === "today"}
-              aria-selected={activeTab === "today"}
-              onClick={() => setTab("today")}
-            >
-              <span className="tab-icon" aria-hidden>
-                <CalendarDays size={16} strokeWidth={activeTab === "today" ? 2.25 : 1.75} />
-              </span>
-              ថ្ងៃនេះ
-            </button>
-            <button
-              type="button"
-              role="tab"
-              className="tab"
-              data-active={activeTab === "folders"}
-              aria-selected={activeTab === "folders"}
-              onClick={() => setTab("folders")}
-            >
-              <span className="tab-icon" aria-hidden>
-                <Folder size={16} strokeWidth={activeTab === "folders" ? 2.25 : 1.75} />
-              </span>
-              ថត
-            </button>
-          </div>
+      <div className="activities-toolbar">
+        <div className="min-w-0">
+          <h1 className="page-header-title">
+            {currentFolder ? currentFolder.name : "សកម្មភាព"}
+          </h1>
+          {atRoot ? (
+            <p className="font-subtitle mt-1 text-sm text-ink-muted">
+              {activeTab === "today"
+                ? "កត់ត្រា និងតាមដានការងារថ្ងៃនេះ"
+                : "រៀបចំថតសម្រាប់សកម្មភាព"}
+            </p>
+          ) : null}
         </div>
-      ) : null}
+
+        <div className="activities-toolbar-actions">
+          {atRoot ? (
+            <div className="tabs" role="tablist" aria-label="ផ្ទាំងសកម្មភាព">
+              <button
+                type="button"
+                role="tab"
+                className="tab"
+                data-active={activeTab === "today"}
+                aria-selected={activeTab === "today"}
+                onClick={() => setTab("today")}
+              >
+                <span className="tab-icon" aria-hidden>
+                  <CalendarDays
+                    size={16}
+                    strokeWidth={activeTab === "today" ? 2.25 : 1.75}
+                  />
+                </span>
+                ថ្ងៃនេះ
+              </button>
+              <button
+                type="button"
+                role="tab"
+                className="tab"
+                data-active={activeTab === "folders"}
+                aria-selected={activeTab === "folders"}
+                onClick={() => setTab("folders")}
+              >
+                <span className="tab-icon" aria-hidden>
+                  <Folder
+                    size={16}
+                    strokeWidth={activeTab === "folders" ? 2.25 : 1.75}
+                  />
+                </span>
+                ថត
+              </button>
+            </div>
+          ) : null}
+
+          {atRoot && activeTab === "folders" ? (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={openFolderModal}
+            >
+              <FolderPlus size={16} /> បន្ថែមថត
+            </button>
+          ) : null}
+          {!isSubfolder && currentFolder ? (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={openFolderModal}
+            >
+              <FolderPlus size={16} /> បន្ថែមថតរង
+            </button>
+          ) : null}
+          {(atRoot && activeTab === "today") || currentFolder ? (
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={currentFolder ? openActivityModal : handleAddActivity}
+            >
+              <Plus size={16} /> បន្ថែមសកម្មភាព
+            </button>
+          ) : null}
+        </div>
+      </div>
 
       {folderPath.length > 0 ? (
         <nav className="flex flex-wrap items-center gap-1 text-sm text-ink-muted">
@@ -487,9 +508,30 @@ function ActivitiesContent() {
             </div>
             {renderActivityList(
               todayActivities,
+              "មិនទាន់មានសកម្មភាពថ្ងៃនេះ",
               folders.length === 0
-                ? "បង្កើតថតជាមុន នៅផ្ទាំង ថត ។"
-                : "ចុច បន្ថែមសកម្មភាព ដើម្បីកត់ត្រាការងារថ្ងៃនេះ។"
+                ? "បង្កើតថតជាមុន រួចបន្ថែមសកម្មភាព។"
+                : "ចុច បន្ថែមសកម្មភាព ដើម្បីកត់ត្រាការងារថ្ងៃនេះ។",
+              folders.length === 0 ? (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => {
+                    setTab("folders");
+                    openFolderModal();
+                  }}
+                >
+                  <FolderPlus size={16} /> បង្កើតថត
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={handleAddActivity}
+                >
+                  <Plus size={16} /> បន្ថែមសកម្មភាព
+                </button>
+              )
             )}
           </section>
         </>
@@ -540,7 +582,15 @@ function ActivitiesContent() {
             </div>
             {renderActivityList(
               visible,
-              "ចុច បន្ថែមសកម្មភាព ដើម្បីបង្កើតក្នុងថតនេះ។"
+              "មិនទាន់មានសកម្មភាពថ្ងៃនេះ",
+              "ចុច បន្ថែមសកម្មភាព ដើម្បីបង្កើតក្នុងថតនេះ។",
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={openActivityModal}
+              >
+                <Plus size={16} /> បន្ថែមសកម្មភាព
+              </button>
             )}
           </section>
         </>
@@ -644,177 +694,196 @@ function ActivitiesContent() {
         onClose={() => setActivityOpen(false)}
       >
         <form className="form-activity" onSubmit={onCreateActivity}>
-          {currentFolder ? (
-            <p className="form-hint">ថត៖ {currentFolder.name}</p>
-          ) : (
-            <label className="block">
-              <span className="form-label">ថត</span>
-              <select
-                className="input"
-                value={activityFolderId}
-                onChange={(e) => setActivityFolderId(e.target.value)}
-                required
-              >
-                <option value="">ជ្រើសរើសថត</option>
-                {folders.map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.parentId
-                      ? `${folderNameById[f.parentId] ?? ""} / ${f.name}`
-                      : f.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          <label className="block">
-            <span className="form-label">ចំណងជើង</span>
-            <input
-              className="input"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="ការងារផ្តោត / ពេលវេលាគ្រួសារ / ហាត់ប្រាណ"
-              required
-            />
-          </label>
-          <label className="block">
-            <span className="form-label">កំណត់ចំណាំ</span>
-            <textarea
-              className="input min-h-20"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="ព័ត៌មានបន្ថែម (ស្រេចចិត្ត)"
-            />
-          </label>
+          <div className="form-activity-body">
+            {currentFolder ? (
+              <p className="folder-chip">{currentFolder.name}</p>
+            ) : (
+              <label className="block">
+                <span className="form-label">ថត</span>
+                <select
+                  className="input"
+                  value={activityFolderId}
+                  onChange={(e) => setActivityFolderId(e.target.value)}
+                  required
+                >
+                  <option value="">ជ្រើសរើសថត</option>
+                  {folders.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.parentId
+                        ? `${folderNameById[f.parentId] ?? ""} / ${f.name}`
+                        : f.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
 
-          <div className="schedule-card">
             <label className="block">
-              <span className="form-label">ថ្ងៃ</span>
+              <span className="form-label">ចំណងជើង</span>
               <input
                 className="input"
-                type="date"
-                value={activityDate}
-                onChange={(e) => setActivityDate(e.target.value)}
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="ឧ. ប្រជុំក្រុម / ហាត់ប្រាណ"
                 required
               />
             </label>
-            <div>
-              <span className="form-label">ម៉ោងចាប់ផ្តើម</span>
-              <div className="duration-row">
-                <div
-                  ref={timeFaceRef}
-                  className="duration-face"
-                  role="group"
-                  tabIndex={0}
-                  aria-label="ម៉ោងចាប់ផ្តើម។ ប្រើព្រួញឡើង និងចុះដើម្បីផ្លាស់ប្តូរ។"
-                  onKeyDown={onTimeKeyDown}
-                >
-                  <button
-                    type="button"
-                    className="duration-seg"
-                    data-active={timeUnit === "hours"}
-                    aria-pressed={timeUnit === "hours"}
-                    aria-label="ម៉ោង"
-                    onClick={() => {
-                      setTimeUnit("hours");
-                      focusTimeFace();
-                    }}
-                    onKeyDown={onTimeKeyDown}
-                  >
-                    {clock.hour12}
-                  </button>
-                  <span className="duration-colon" aria-hidden>
-                    :
-                  </span>
-                  <button
-                    type="button"
-                    className="duration-seg"
-                    data-active={timeUnit === "minutes"}
-                    aria-pressed={timeUnit === "minutes"}
-                    aria-label="នាទី"
-                    onClick={() => {
-                      setTimeUnit("minutes");
-                      focusTimeFace();
-                    }}
-                    onKeyDown={onTimeKeyDown}
-                  >
-                    {String(clock.minute).padStart(2, "0")}
-                  </button>
-                </div>
 
-                <div className="duration-unit-toggle" role="group" aria-label="ព្រឹក ឬ ល្ងាច">
-                  <button
-                    type="button"
-                    data-active={clock.period === "am"}
-                    aria-pressed={clock.period === "am"}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setPeriod("am");
-                    }}
-                  >
-                    ព្រឹក
-                  </button>
-                  <button
-                    type="button"
-                    data-active={clock.period === "pm"}
-                    aria-pressed={clock.period === "pm"}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setPeriod("pm");
-                    }}
-                  >
-                    ល្ងាច
-                  </button>
+            <label className="block">
+              <span className="form-label">ទីតាំង</span>
+              <input
+                className="input"
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                placeholder="ឧ. ទីស្នាក់ការ / នៅផ្ទះ / កន្លែងហាត់ប្រាណ"
+              />
+            </label>
+
+            <label className="block">
+              <span className="form-label">កំណត់ចំណាំ</span>
+              <textarea
+                className="input form-notes"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="ស្រេចចិត្ត"
+                rows={2}
+              />
+            </label>
+
+            <div className="form-section">
+              <div className="schedule-grid">
+                <label className="block">
+                  <span className="form-label">ថ្ងៃ</span>
+                  <input
+                    className="input"
+                    type="date"
+                    value={activityDate}
+                    onChange={(e) => setActivityDate(e.target.value)}
+                    required
+                  />
+                </label>
+                <div>
+                  <span className="form-label">ម៉ោង</span>
+                  <div className="duration-row">
+                    <div
+                      ref={timeFaceRef}
+                      className="duration-face"
+                      role="group"
+                      tabIndex={0}
+                      aria-label="ម៉ោងចាប់ផ្តើម។ ប្រើព្រួញឡើង និងចុះដើម្បីផ្លាស់ប្តូរ។"
+                      onKeyDown={onTimeKeyDown}
+                    >
+                      <button
+                        type="button"
+                        className="duration-seg"
+                        data-active={timeUnit === "hours"}
+                        aria-pressed={timeUnit === "hours"}
+                        aria-label="ម៉ោង"
+                        onClick={() => {
+                          setTimeUnit("hours");
+                          focusTimeFace();
+                        }}
+                        onKeyDown={onTimeKeyDown}
+                      >
+                        {clock.hour12}
+                      </button>
+                      <span className="duration-colon" aria-hidden>
+                        :
+                      </span>
+                      <button
+                        type="button"
+                        className="duration-seg"
+                        data-active={timeUnit === "minutes"}
+                        aria-pressed={timeUnit === "minutes"}
+                        aria-label="នាទី"
+                        onClick={() => {
+                          setTimeUnit("minutes");
+                          focusTimeFace();
+                        }}
+                        onKeyDown={onTimeKeyDown}
+                      >
+                        {String(clock.minute).padStart(2, "0")}
+                      </button>
+                    </div>
+                    <div className="duration-unit-toggle" role="group" aria-label="ព្រឹក ឬ ល្ងាច">
+                      <button
+                        type="button"
+                        data-active={clock.period === "am"}
+                        aria-pressed={clock.period === "am"}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setPeriod("am");
+                        }}
+                      >
+                        ព្រឹក
+                      </button>
+                      <button
+                        type="button"
+                        data-active={clock.period === "pm"}
+                        aria-pressed={clock.period === "pm"}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setPeriod("pm");
+                        }}
+                      >
+                        ល្ងាច
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <span className="form-label">ធ្វើម្តងទៀត</span>
+                <div className="day-chips" role="group" aria-label="ថ្ងៃធ្វើម្តងទៀត">
+                  {ACTIVITY_REPEATS.map((r) => {
+                    const checked = repeat.includes(r.value);
+                    return (
+                      <button
+                        key={r.value}
+                        type="button"
+                        className="day-chip"
+                        data-active={checked}
+                        aria-pressed={checked}
+                        title={r.label}
+                        aria-label={r.label}
+                        onClick={() => {
+                          setRepeat((prev) =>
+                            prev.includes(r.value)
+                              ? prev.filter((day) => day !== r.value)
+                              : [...prev, r.value]
+                          );
+                        }}
+                      >
+                        {r.short}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             </div>
 
-            <div className="day-chips" role="group" aria-label="ថ្ងៃធ្វើម្តងទៀត">
-              {ACTIVITY_REPEATS.map((r) => {
-                const checked = repeat.includes(r.value);
-                return (
+            <div>
+              <span className="form-label">ស្ថានភាព</span>
+              <div className="status-pills" role="group" aria-label="ស្ថានភាព">
+                {ACTIVITY_STATUSES.map((s) => (
                   <button
-                    key={r.value}
+                    key={s.value}
                     type="button"
-                    className="day-chip"
-                    data-active={checked}
-                    aria-pressed={checked}
-                    title={r.label}
-                    aria-label={r.label}
-                    onClick={() => {
-                      setRepeat((prev) =>
-                        prev.includes(r.value)
-                          ? prev.filter((day) => day !== r.value)
-                          : [...prev, r.value]
-                      );
+                    data-active={status === s.value}
+                    aria-pressed={status === s.value}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setStatus(s.value);
                     }}
                   >
-                    {r.short}
+                    {s.label}
                   </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div>
-            <span className="form-label">ស្ថានភាព</span>
-            <div className="status-pills" role="group" aria-label="ស្ថានភាព">
-              {ACTIVITY_STATUSES.map((s) => (
-                <button
-                  key={s.value}
-                  type="button"
-                  data-active={status === s.value}
-                  aria-pressed={status === s.value}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setStatus(s.value);
-                  }}
-                >
-                  {s.label}
-                </button>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
 
@@ -827,7 +896,7 @@ function ActivitiesContent() {
               បោះបង់
             </button>
             <button type="submit" className="btn btn-primary">
-              រក្សាទុកសកម្មភាព
+              រក្សាទុក
             </button>
           </div>
         </form>

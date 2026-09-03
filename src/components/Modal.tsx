@@ -48,7 +48,7 @@ export function Modal({
         aria-modal="true"
         aria-label={title}
       >
-        <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="modal-head">
           <h2 className="font-display text-lg text-ink sm:text-xl">{title}</h2>
           <button
             type="button"

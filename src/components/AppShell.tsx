@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, Goal, House, Wallet } from "lucide-react";
+import { Activity, CalendarDays, Goal, House, Wallet } from "lucide-react";
 
 const links = [
   { href: "/", label: "ទិដ្ឋភាព", short: "ទូទៅ", icon: House, match: "exact" as const },
@@ -11,6 +11,13 @@ const links = [
     label: "សកម្មភាព",
     short: "សកម្មភាព",
     icon: Activity,
+    match: "prefix" as const,
+  },
+  {
+    href: "/calendar",
+    label: "ប្រតិទិន",
+    short: "ប្រតិទិន",
+    icon: CalendarDays,
     match: "prefix" as const,
   },
   {
@@ -75,7 +82,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </nav>
 
           <p className="font-subtitle mt-4 border-t border-line px-2 pt-4 text-[0.8rem] text-ink-soft">
-            តាមដានការងារ · លុយ · គោលដៅគ្រួសារ
+            តាមដានការងារ · ប្រតិទិន · លុយ · គោលដៅគ្រួសារ
           </p>
         </div>
       </aside>

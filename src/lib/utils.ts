@@ -1,12 +1,14 @@
-import { format, isToday, parseISO, startOfMonth, endOfMonth, isWithinInterval } from "date-fns";
+import { format, isToday, parseISO, startOfMonth, endOfMonth, isWithinInterval, eachDayOfInterval, startOfWeek, endOfWeek, isSameMonth, isSameDay, addMonths, subMonths } from "date-fns";
 import { km } from "date-fns/locale";
 import type {
   Activity,
   ActivityFolder,
   ActivityRepeat,
+  CalendarEvent,
   FamilyGoal,
   FolderColor,
   FolderPriority,
+  Reminder,
   Transaction,
 } from "./types";
 
@@ -125,6 +127,92 @@ export function isActivityForToday(activity: Activity, now = new Date()): boolea
   const today = now.getDay();
   return days.some((day) => REPEAT_WEEKDAY[day] === today);
 }
+
+export function occursOnDate(
+  dateISO: string,
+  itemDate: string,
+  repeat?: ActivityRepeat[] | null
+): boolean {
+  if (itemDate === dateISO) return true;
+  const days = normalizeRepeatDays(repeat);
+  if (days.length === 0) return false;
+  try {
+    const target = parseISO(dateISO);
+    const origin = parseISO(itemDate);
+    if (target < origin) return false;
+    return days.some((day) => REPEAT_WEEKDAY[day] === target.getDay());
+  } catch {
+    return false;
+  }
+}
+
+export type CalendarCell = {
+  date: Date;
+  iso: string;
+  inMonth: boolean;
+  isToday: boolean;
+};
+
+export function buildMonthGrid(month: Date): CalendarCell[] {
+  const start = startOfWeek(startOfMonth(month), { weekStartsOn: 0 });
+  const end = endOfWeek(endOfMonth(month), { weekStartsOn: 0 });
+  return eachDayOfInterval({ start, end }).map((date) => ({
+    date,
+    iso: format(date, "yyyy-MM-dd"),
+    inMonth: isSameMonth(date, month),
+    isToday: isToday(date),
+  }));
+}
+
+export function shiftMonth(month: Date, delta: number): Date {
+  return delta >= 0 ? addMonths(month, delta) : subMonths(month, Math.abs(delta));
+}
+
+export function isSameDayISO(a: string, b: string): boolean {
+  try {
+    return isSameDay(parseISO(a), parseISO(b));
+  } catch {
+    return a === b;
+  }
+}
+
+export function eventsForDate(events: CalendarEvent[], dateISO: string): CalendarEvent[] {
+  return events
+    .filter((e) => occursOnDate(dateISO, e.date, e.repeat))
+    .sort((a, b) => {
+      if (a.allDay !== b.allDay) return a.allDay ? -1 : 1;
+      return (a.startTime || "").localeCompare(b.startTime || "");
+    });
+}
+
+export function remindersForDate(reminders: Reminder[], dateISO: string): Reminder[] {
+  return reminders
+    .filter((r) => occursOnDate(dateISO, r.dueDate, r.repeat))
+    .sort((a, b) => {
+      if (a.completed !== b.completed) return a.completed ? 1 : -1;
+      return (a.dueTime || "").localeCompare(b.dueTime || "");
+    });
+}
+
+export function calendarMarksForMonth(
+  month: Date,
+  events: CalendarEvent[],
+  reminders: Reminder[]
+): Record<string, { events: number; reminders: number }> {
+  const cells = buildMonthGrid(month);
+  const marks: Record<string, { events: number; reminders: number }> = {};
+  for (const cell of cells) {
+    if (!cell.inMonth) continue;
+    const eCount = eventsForDate(events, cell.iso).length;
+    const rCount = remindersForDate(reminders, cell.iso).length;
+    if (eCount || rCount) {
+      marks[cell.iso] = { events: eCount, reminders: rCount };
+    }
+  }
+  return marks;
+}
+
+export const WEEKDAY_HEADERS_KM = ["អា", "ច", "អ", "ព", "ព្រ", "សុ", "សៅ"] as const;
 
 export function filterThisMonth<T extends { date: string }>(items: T[]): T[] {
   const now = new Date();
