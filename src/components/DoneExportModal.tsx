@@ -7,6 +7,7 @@ import { toJpeg, toPng } from "html-to-image";
 import { FileText, Image as ImageIcon } from "lucide-react";
 import { Modal } from "@/components/Modal";
 import {
+  bytesToBlob,
   dataUrlToBytes,
   downloadBlob,
   jpegPagesToPdf,
@@ -219,7 +220,7 @@ export function DoneExportModal({
         const page = pages[index];
         const stamp = page?.monthKey ?? format(new Date(), "yyyy-MM");
         const suffix = shots.length > 1 ? `-${index + 1}` : "";
-        return new File([new Blob([dataUrlToBytes(shot.dataUrl)])], `done-${stamp}${suffix}.png`, {
+        return new File([bytesToBlob(dataUrlToBytes(shot.dataUrl), "image/png")], `done-${stamp}${suffix}.png`, {
           type: "image/png",
         });
       });

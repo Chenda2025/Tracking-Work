@@ -23,6 +23,13 @@ export function dataUrlToBytes(dataUrl: string): Uint8Array {
   return out;
 }
 
+/** Copy into a standalone ArrayBuffer so Blob/File constructors type-check. */
+export function bytesToBlob(bytes: Uint8Array, type: string): Blob {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return new Blob([copy.buffer as ArrayBuffer], { type });
+}
+
 export function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -94,7 +101,7 @@ export function jpegPagesToPdf(
   }
   write(`trailer\n<< /Size ${size} /Root 1 0 R >>\nstartxref\n${xrefPos}\n%%EOF\n`);
 
-  return new Blob([concat(parts)], { type: "application/pdf" });
+  return bytesToBlob(concat(parts), "application/pdf");
 }
 
 export function paginateItems<T>(items: T[], firstPage = 8, nextPage = 10): T[][] {
