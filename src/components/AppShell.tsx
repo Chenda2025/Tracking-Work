@@ -1,18 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { Activity, CalendarDays, Goal, House, Wallet } from "lucide-react";
+import { useEffect, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { CalendarDays, Goal, House, Wallet } from "lucide-react";
+import { ProfileButton } from "@/components/ProfileLoginModal";
+import { TelegramDailyScheduler } from "@/components/TelegramDailyScheduler";
+import { useTrackingStore } from "@/lib/store";
+import {
+  formatKhmerLunarDateTime,
+  type KhmerDateTimeStamp,
+} from "@/lib/utils";
 
 const links = [
   { href: "/", label: "ទិដ្ឋភាព", short: "ទូទៅ", icon: House, match: "exact" as const },
-  {
-    href: "/activities",
-    label: "សកម្មភាព",
-    short: "សកម្មភាព",
-    icon: Activity,
-    match: "prefix" as const,
-  },
   {
     href: "/calendar",
     label: "ប្រតិទិន",
@@ -42,17 +43,53 @@ function isActive(pathname: string, href: string, match: "exact" | "prefix") {
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const hydrated = useTrackingStore((s) => s.hydrated);
+  const signedIn = useTrackingStore((s) => s.signedIn);
+  const [nowStamp, setNowStamp] = useState<KhmerDateTimeStamp | null>(null);
+  const isLogin = pathname === "/login";
+
+  useEffect(() => {
+    const tick = () => setNowStamp(formatKhmerLunarDateTime(new Date()));
+    tick();
+    const id = window.setInterval(tick, 30_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    if (!signedIn && !isLogin) router.replace("/login");
+    if (signedIn && isLogin) router.replace("/");
+  }, [hydrated, signedIn, isLogin, router]);
+
+  if (!hydrated || (!signedIn && !isLogin) || (signedIn && isLogin)) {
+    return (
+      <div className="app-shell is-auth">
+        <div className="login-screen">
+          <p className="login-loading">កំពុងផ្ទុក…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (isLogin) {
+    return <div className="app-shell is-auth">{children}</div>;
+  }
 
   return (
     <div className="app-shell">
+      <TelegramDailyScheduler />
       {/* Laptop / desktop sidebar */}
       <aside className="app-sidebar" aria-label="ម៉ឺនុយមេ">
         <div className="surface app-sidebar-panel">
-          <div className="mb-6 px-2 pt-1">
-            <p className="font-display text-[1.65rem] text-brand">ថេរ</p>
-            <p className="font-subtitle mt-1 text-[0.8rem] leading-snug text-ink-muted">
-              ប្រព័ន្ធតាមដានការងារផ្ទាល់ខ្លួន
-            </p>
+          <div className="mb-6 px-2 pt-1 app-sidebar-brand">
+            <div>
+              <p className="font-display text-[1.65rem] text-brand">ថេរ</p>
+              <p className="font-subtitle mt-1 text-[0.8rem] leading-snug text-ink-muted">
+                ប្រព័ន្ធតាមដានការងារផ្ទាល់ខ្លួន
+              </p>
+            </div>
+            <ProfileButton className="app-sidebar-profile" />
           </div>
 
           <nav className="flex flex-1 flex-col gap-1">
@@ -82,7 +119,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </nav>
 
           <p className="font-subtitle mt-4 border-t border-line px-2 pt-4 text-[0.8rem] text-ink-soft">
-            តាមដានការងារ · ប្រតិទិន · លុយ · គោលដៅគ្រួសារ
+            ប្រតិទិន · លុយ · គោលដៅគ្រួសារ
           </p>
         </div>
       </aside>
@@ -90,10 +127,39 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div className="app-main-column">
         {/* Phone / iPad top brand bar */}
         <header className="app-topbar">
-          <p className="font-display text-xl text-brand">ថេរ</p>
-          <p className="font-subtitle truncate text-xs text-ink-soft">
-            ប្រព័ន្ធតាមដានផ្ទាល់ខ្លួន
-          </p>
+          <div className="app-topbar-row">
+            <h1 className="app-topbar-title">ការងារប្រចាំថ្ងៃ</h1>
+            <ProfileButton />
+          </div>
+          {nowStamp ? (
+            <p
+              className="app-topbar-datetime"
+              aria-live="polite"
+              aria-label={nowStamp.label}
+            >
+              <span className="app-topbar-date-line">
+                <span>{nowStamp.weekday}</span>
+                <i aria-hidden />
+                <span>{nowStamp.moon}</span>
+                <i aria-hidden />
+                <span>{nowStamp.month}</span>
+                <i aria-hidden />
+                <span>{nowStamp.year}</span>
+                <i aria-hidden />
+                <span>{nowStamp.sak}</span>
+                <i aria-hidden />
+                <span>{nowStamp.be}</span>
+                <i aria-hidden />
+                <span>{nowStamp.solar}</span>
+                {nowStamp.observance ? (
+                  <>
+                    <i aria-hidden />
+                    <span>{nowStamp.observance}</span>
+                  </>
+                ) : null}
+              </span>
+            </p>
+          ) : null}
         </header>
 
         <main className="app-main">{children}</main>

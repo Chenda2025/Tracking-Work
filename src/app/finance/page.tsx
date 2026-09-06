@@ -1,68 +1,262 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
+import { format, isSameMonth, parseISO } from "date-fns";
+import { km } from "date-fns/locale";
+import { useRouter, useSearchParams } from "next/navigation";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Plus,
+  Trash2,
+} from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
 import { HydrationGate } from "@/components/HydrationGate";
+import { CategoryPicker } from "@/components/CategoryPicker";
+import { DatePickerField } from "@/components/DatePicker";
 import { Modal } from "@/components/Modal";
-import { PageHeader } from "@/components/PageHeader";
-import { StatCard } from "@/components/StatCard";
 import { useTrackingStore } from "@/lib/store";
-import type { FinanceCategory, TransactionType } from "@/lib/types";
+import type {
+  FinanceCategory,
+  MoneyCurrency,
+  Transaction,
+  TransactionType,
+} from "@/lib/types";
 import {
-  EXPENSE_CATEGORIES,
-  INCOME_CATEGORIES,
-  filterThisMonth,
-  formatMoney,
+  WEEKDAY_HEADERS_KM,
+  buildMonthGrid,
+  filterByMonth,
+  financeMarksForMonth,
+  formatMoneyPair,
   formatMonth,
-  formatShortDate,
-  labelFinanceCategory,
+  isSavingsTx,
   labelTransactionType,
+  resolveFinanceCategoryLabel,
+  shiftMonth,
   sumExpense,
   sumIncome,
   todayISO,
+  toUsd,
 } from "@/lib/utils";
+
+type FinanceView = "month" | "list" | "income" | "expense";
+
+const FINANCE_VIEWS: FinanceView[] = [
+  "month",
+  "list",
+  "income",
+  "expense",
+];
+
+function parseView(value: string | null): FinanceView {
+  return FINANCE_VIEWS.includes(value as FinanceView)
+    ? (value as FinanceView)
+    : "month";
+}
+
+function parseMonthParam(value: string | null): Date {
+  const match = /^(\d{4})-(\d{2})$/.exec(value ?? "");
+  if (!match) {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  }
+  return new Date(Number(match[1]), Number(match[2]) - 1, 1);
+}
+
+function monthKey(month: Date): string {
+  return format(month, "yyyy-MM");
+}
 
 export default function FinancePage() {
   return (
     <HydrationGate>
-      <FinanceContent />
+      <Suspense fallback={null}>
+        <FinanceContent />
+      </Suspense>
     </HydrationGate>
   );
 }
 
 function FinanceContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const view = parseView(searchParams.get("view"));
+  const month = parseMonthParam(searchParams.get("month"));
+
   const transactions = useTrackingStore((s) => s.transactions);
+  const incomeCategories = useTrackingStore((s) => s.incomeCategories);
+  const expenseCategories = useTrackingStore((s) => s.expenseCategories);
+  const saveCategories = useTrackingStore((s) => s.saveCategories);
   const addTransaction = useTrackingStore((s) => s.addTransaction);
+  const updateTransaction = useTrackingStore((s) => s.updateTransaction);
   const deleteTransaction = useTrackingStore((s) => s.deleteTransaction);
 
-  const [open, setOpen] = useState(false);
+  const [selectedISO, setSelectedISO] = useState(todayISO);
+  const [formOpen, setFormOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [type, setType] = useState<TransactionType>("expense");
   const [amount, setAmount] = useState("");
+  const [currency, setCurrency] = useState<MoneyCurrency>("KHR");
   const [category, setCategory] = useState<FinanceCategory>("food");
   const [note, setNote] = useState("");
   const [date, setDate] = useState(todayISO());
-  const [view, setView] = useState<"month" | "all">("month");
 
-  const monthTx = filterThisMonth(transactions);
-  const visible = useMemo(() => {
-    const list = view === "month" ? monthTx : transactions;
-    return [...list].sort((a, b) => b.date.localeCompare(a.date));
-  }, [monthTx, transactions, view]);
+  const cells = useMemo(() => buildMonthGrid(month), [month]);
+  const monthTx = useMemo(
+    () => filterByMonth(transactions, month),
+    [transactions, month]
+  );
+  const marks = useMemo(
+    () => financeMarksForMonth(month, transactions),
+    [month, transactions]
+  );
+
+  useEffect(() => {
+    try {
+      if (!isSameMonth(parseISO(selectedISO), month)) {
+        const today = todayISO();
+        setSelectedISO(
+          isSameMonth(parseISO(today), month) ? today : format(month, "yyyy-MM-dd")
+        );
+      }
+    } catch {
+      setSelectedISO(format(month, "yyyy-MM-dd"));
+    }
+  }, [month, selectedISO]);
+
+  const dayTx = useMemo(
+    () =>
+      monthTx
+        .filter((item) => item.date === selectedISO)
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    [monthTx, selectedISO]
+  );
 
   const income = sumIncome(monthTx);
   const expense = sumExpense(monthTx);
   const balance = income - expense;
 
-  const categories =
-    type === "income" ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+  const listItems = useMemo(() => {
+    const source =
+      view === "income"
+        ? monthTx.filter((item) => item.type === "income")
+        : view === "expense"
+          ? monthTx.filter(
+              (item) => item.type === "expense" && !isSavingsTx(item)
+            )
+          : monthTx;
+    return [...source].sort((a, b) => {
+      const byDate = b.date.localeCompare(a.date);
+      if (byDate) return byDate;
+      return b.createdAt.localeCompare(a.createdAt);
+    });
+  }, [monthTx, view]);
 
-  function resetForm() {
-    setType("expense");
+  const groupedList = useMemo(() => {
+    const map = new Map<string, Transaction[]>();
+    for (const item of listItems) {
+      const group = map.get(item.date) ?? [];
+      group.push(item);
+      map.set(item.date, group);
+    }
+    return [...map.entries()];
+  }, [listItems]);
+
+  const categoryTotals = useMemo(() => {
+    const map = new Map<string, number>();
+    const source =
+      view === "income"
+        ? monthTx.filter((item) => item.type === "income")
+        : monthTx.filter(
+            (item) => item.type === "expense" && !isSavingsTx(item)
+          );
+    source.forEach((item) => {
+      map.set(
+        item.category,
+        (map.get(item.category) ?? 0) + toUsd(item.amount, item.currency)
+      );
+    });
+    return [...map.entries()]
+      .map(([name, total]) => ({ name, total }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 6);
+  }, [monthTx, view]);
+
+  const selectedParts = useMemo(() => {
+    try {
+      const d = parseISO(selectedISO);
+      return {
+        weekday: format(d, "EEEE", { locale: km }),
+        date: format(d, "d MMMM yyyy", { locale: km }),
+      };
+    } catch {
+      return { weekday: "", date: selectedISO };
+    }
+  }, [selectedISO]);
+
+  const categoryCatalog = useMemo(
+    () => [...incomeCategories, ...expenseCategories, ...saveCategories],
+    [incomeCategories, expenseCategories, saveCategories]
+  );
+  const categoryLabel = (id: string) =>
+    resolveFinanceCategoryLabel(id, categoryCatalog);
+
+  function setFinanceNav(next: { view?: FinanceView; month?: Date }) {
+    const params = new URLSearchParams(searchParams.toString());
+    const nextView = next.view ?? view;
+    if (nextView === "month") params.delete("view");
+    else params.set("view", nextView);
+
+    const nextMonth = next.month ?? month;
+    const now = new Date();
+    if (
+      nextMonth.getFullYear() === now.getFullYear() &&
+      nextMonth.getMonth() === now.getMonth()
+    ) {
+      params.delete("month");
+    } else {
+      params.set("month", monthKey(nextMonth));
+    }
+
+    const qs = params.toString();
+    router.replace(qs ? `/finance?${qs}` : "/finance", { scroll: false });
+  }
+
+  function resetForm(nextType: TransactionType = "expense", nextDate = selectedISO) {
+    setEditingId(null);
+    setType(nextType);
     setAmount("");
-    setCategory("food");
+    setCurrency("KHR");
+    setCategory(nextType === "income" ? "salary" : "food");
     setNote("");
-    setDate(todayISO());
+    setDate(nextDate);
+  }
+
+  function openCreate(nextType?: TransactionType, nextDate = selectedISO) {
+    const kind = nextType ?? (view === "income" ? "income" : "expense");
+    resetForm(kind, nextDate);
+    setFormOpen(true);
+  }
+
+  function openEdit(item: Transaction) {
+    setEditingId(item.id);
+    const nextType = item.type === "income" ? "income" : "expense";
+    setType(nextType);
+    setAmount(String(item.amount));
+    setCurrency(item.currency === "USD" ? "USD" : "KHR");
+    setCategory(
+      nextType === "expense" && item.category === "savings"
+        ? "other"
+        : item.category
+    );
+    setNote(item.note);
+    setDate(item.date);
+    setFormOpen(true);
+  }
+
+  function closeForm() {
+    setFormOpen(false);
+    setEditingId(null);
   }
 
   function onTypeChange(next: TransactionType) {
@@ -74,219 +268,493 @@ function FinanceContent() {
     e.preventDefault();
     const value = Number(amount);
     if (!value || value <= 0) return;
-    addTransaction({ type, amount: value, category, note, date });
-    resetForm();
-    setOpen(false);
+    const nextType: TransactionType = type === "income" ? "income" : "expense";
+    if (editingId) {
+      updateTransaction(editingId, {
+        type: nextType,
+        amount: value,
+        currency,
+        category,
+        note,
+        date,
+      });
+    } else {
+      addTransaction({
+        type: nextType,
+        amount: value,
+        currency,
+        category,
+        note,
+        date,
+      });
+    }
+    closeForm();
   }
 
-  const spendByCategory = useMemo(() => {
-    const map = new Map<string, number>();
-    monthTx
-      .filter((t) => t.type === "expense")
-      .forEach((t) => map.set(t.category, (map.get(t.category) ?? 0) + t.amount));
-    return [...map.entries()]
-      .map(([name, total]) => ({ name, total }))
-      .sort((a, b) => b.total - a.total)
-      .slice(0, 5);
-  }, [monthTx]);
+  function onDeleteCurrent() {
+    if (!editingId) return;
+    deleteTransaction(editingId);
+    closeForm();
+  }
 
   return (
     <div className="page">
-      <PageHeader
-        title="ចំណូល និង ចំណាយ"
-        subtitle="តាមដានលំហូរលុយផ្ទាល់ខ្លួនជាផ្នែកនៃប្រព័ន្ធការងាររបស់អ្នក។"
-        action={
-          <button type="button" className="btn btn-primary" onClick={() => setOpen(true)}>
-            <Plus size={16} /> បន្ថែមប្រតិបត្តិការ
-          </button>
-        }
-      />
-
-      <div className="grid gap-3 sm:grid-cols-3">
-        <StatCard
-          label={`ចំណូល ${formatMonth()}`}
-          value={formatMoney(income)}
-          tone="success"
-        />
-        <StatCard
-          label={`ចំណាយ ${formatMonth()}`}
-          value={formatMoney(expense)}
-          tone="accent"
-        />
-        <StatCard
-          label="សមតុល្យសុទ្ធ"
-          value={formatMoney(balance)}
-          tone={balance >= 0 ? "brand" : "danger"}
-        />
-      </div>
-
-      <div className="grid gap-3 lg:grid-cols-3">
-        <section className="surface p-4 md:p-5 lg:col-span-1">
-          <h2 className="section-title mb-4">ចំណាយខ្ពស់បំផុត</h2>
-          {spendByCategory.length === 0 ? (
-            <EmptyState
-              title="មិនទាន់មានចំណាយ"
-              description="ចំណាយក្នុងខែនេះនឹងបង្ហាញតាមប្រភេទនៅទីនេះ។"
-            />
-          ) : (
-            <ul className="list-stack">
-              {spendByCategory.map((item) => (
-                <li key={item.name} className="list-row items-center">
-                  <span className="text-ink-muted">
-                    {labelFinanceCategory(item.name)}
-                  </span>
-                  <span className="font-semibold">{formatMoney(item.total)}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <section className="surface p-4 md:p-5 lg:col-span-2">
-          <div className="section-head">
-            <h2 className="section-title">ប្រតិបត្តិការ</h2>
-            <div className="chip-group">
-              <button
-                type="button"
-                className="chip"
-                data-active={view === "month"}
-                onClick={() => setView("month")}
-              >
-                ខែនេះ
-              </button>
-              <button
-                type="button"
-                className="chip"
-                data-active={view === "all"}
-                onClick={() => setView("all")}
-              >
-                ទាំងអស់
-              </button>
-            </div>
-          </div>
-
-          {visible.length === 0 ? (
-            <EmptyState
-              title="មិនទាន់មានប្រតិបត្តិការ"
-              description="បន្ថែមចំណូល ឬចំណាយដើម្បីចាប់ផ្តើមកំណត់ត្រាលុយ។"
-            />
-          ) : (
-            <ul className="list-stack">
-              {visible.map((item) => (
-                <li key={item.id} className="list-row items-center">
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium">
-                      {labelTransactionType(item.type)} ·{" "}
-                      {labelFinanceCategory(item.category)}
-                    </p>
-                    <p className="mt-0.5 text-sm text-ink-muted">
-                      {formatShortDate(item.date)}
-                      {item.note ? ` · ${item.note}` : ""}
-                    </p>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <p
-                      className={`font-semibold ${
-                        item.type === "income" ? "text-success" : "text-danger"
-                      }`}
-                    >
-                      {item.type === "income" ? "+" : "-"}
-                      {formatMoney(item.amount)}
-                    </p>
-                    <button
-                      type="button"
-                      className="btn btn-danger btn-icon"
-                      onClick={() => deleteTransaction(item.id)}
-                      aria-label="លុបប្រតិបត្តិការ"
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      </div>
-
-      <Modal open={open} title="ប្រតិបត្តិការថ្មី" onClose={() => setOpen(false)}>
-        <form className="space-y-3.5" onSubmit={onSubmit}>
-          <div className="chip-group w-full">
+      <div className="calendar-toolbar">
+        <div className="calendar-toolbar-actions">
+          <div
+            className="tabs calendar-view-tabs finance-view-tabs"
+            role="tablist"
+            aria-label="ទិដ្ឋភាពលុយ"
+          >
             <button
               type="button"
-              className="chip flex-1"
-              data-active={type === "income"}
-              onClick={() => onTypeChange("income")}
+              role="tab"
+              className="tab"
+              aria-selected={view === "month"}
+              data-active={view === "month"}
+              onClick={() => setFinanceNav({ view: "month" })}
+            >
+              ខែ
+            </button>
+            <button
+              type="button"
+              role="tab"
+              className="tab"
+              aria-selected={view === "list"}
+              data-active={view === "list"}
+              onClick={() => setFinanceNav({ view: "list" })}
+            >
+              បញ្ជី
+            </button>
+            <button
+              type="button"
+              role="tab"
+              className="tab"
+              aria-selected={view === "income"}
+              data-active={view === "income"}
+              onClick={() => setFinanceNav({ view: "income" })}
             >
               ចំណូល
             </button>
             <button
               type="button"
-              className="chip flex-1"
-              data-active={type === "expense"}
-              onClick={() => onTypeChange("expense")}
+              role="tab"
+              className="tab"
+              aria-selected={view === "expense"}
+              data-active={view === "expense"}
+              onClick={() => setFinanceNav({ view: "expense" })}
             >
               ចំណាយ
             </button>
           </div>
-          <label className="block space-y-1.5">
-            <span className="text-sm font-medium">ចំនួនទឹកប្រាក់</span>
-            <input
-              className="input"
-              type="number"
-              min={1}
-              step={1}
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="50"
-              required
-            />
-          </label>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block space-y-1.5">
-              <span className="text-sm font-medium">ប្រភេទ</span>
-              <select
-                className="input"
-                value={category}
-                onChange={(e) => setCategory(e.target.value as FinanceCategory)}
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => openCreate()}
+          >
+            <Plus size={16} /> បន្ថែម
+          </button>
+        </div>
+      </div>
+
+      <section className="surface finance-hero">
+        <div className="finance-hero-main">
+          <p className="calendar-kicker">{formatMonth(month)}</p>
+          <div
+            className={`finance-hero-balance ${
+              balance >= 0 ? "is-plus" : "is-minus"
+            }`}
+          >
+            <strong className="finance-hero-chip is-khr">
+              <small>រៀល</small>
+              {formatMoneyPair(balance).khr}
+            </strong>
+            <span className="finance-hero-chip is-usd">
+              <small>ដុល្លារ</small>
+              {formatMoneyPair(balance).usd}
+            </span>
+          </div>
+          <p className="finance-hero-hint">សមតុល្យសុទ្ធ</p>
+        </div>
+        <div className="finance-hero-split">
+          <div className="finance-hero-stat is-income">
+            <span>ចំណូល</span>
+            <strong>{formatMoneyPair(income).khr}</strong>
+            <em>{formatMoneyPair(income).usd}</em>
+          </div>
+          <div className="finance-hero-stat is-expense">
+            <span>ចំណាយ</span>
+            <strong>{formatMoneyPair(expense).khr}</strong>
+            <em>{formatMoneyPair(expense).usd}</em>
+          </div>
+        </div>
+      </section>
+
+      {view === "month" ? (
+        <>
+          <section className="surface calendar-month">
+            <div className="calendar-month-head">
+              <button
+                type="button"
+                className="btn btn-ghost btn-icon"
+                aria-label="ខែមុន"
+                onClick={() => setFinanceNav({ month: shiftMonth(month, -1) })}
               >
-                {categories.map((c) => (
-                  <option key={c.value} value={c.value}>
-                    {c.label}
-                  </option>
+                <ChevronLeft size={20} />
+              </button>
+              <h2 className="calendar-month-title">{formatMonth(month)}</h2>
+              <button
+                type="button"
+                className="btn btn-ghost btn-icon"
+                aria-label="ខែបន្ទាប់"
+                onClick={() => setFinanceNav({ month: shiftMonth(month, 1) })}
+              >
+                <ChevronRight size={20} />
+              </button>
+            </div>
+            <div className="calendar-weekdays" aria-hidden>
+              {WEEKDAY_HEADERS_KM.map((d, i) => (
+                <span key={`${d}-${i}`} className={i === 0 ? "is-sun" : ""}>
+                  {d}
+                </span>
+              ))}
+            </div>
+            <div className="calendar-grid" role="grid" aria-label="ប្រតិទិនលុយ">
+              {cells.map((cell) => {
+                const mark = marks[cell.iso];
+                const selected = cell.iso === selectedISO;
+                return (
+                  <button
+                    key={cell.iso}
+                    type="button"
+                    role="gridcell"
+                    className={`calendar-cell ${cell.inMonth ? "" : "is-outside"} ${
+                      cell.isToday ? "is-today" : ""
+                    } ${selected ? "is-selected" : ""}`}
+                    aria-selected={selected}
+                    onClick={() => {
+                      setSelectedISO(cell.iso);
+                      if (!cell.inMonth) {
+                        setFinanceNav({ month: new Date(cell.date) });
+                      }
+                    }}
+                  >
+                    <span className="calendar-day-num">
+                      {format(cell.date, "d")}
+                    </span>
+                    <span className="calendar-dots" aria-hidden>
+                      {mark?.income ? <i className="dot-income" /> : null}
+                      {mark?.expense ? <i className="dot-expense" /> : null}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
+          <section className="surface calendar-day-panel">
+            <div className="calendar-day-head">
+              <div className="min-w-0">
+                <p className="calendar-kicker">{selectedParts.weekday}</p>
+                <h3 className="calendar-day-title">{selectedParts.date}</h3>
+              </div>
+              {dayTx.length ? (
+                <span className="calendar-day-count">{dayTx.length}</span>
+              ) : null}
+            </div>
+            {dayTx.length === 0 ? (
+              <p className="calendar-day-empty">មិនទាន់មានប្រតិបត្តិការ</p>
+            ) : (
+              <ul className="calendar-item-list">
+                {dayTx.map((item) => (
+                  <TransactionItem
+                    key={item.id}
+                    item={item}
+                    categoryLabel={categoryLabel}
+                    onEdit={() => openEdit(item)}
+                  />
                 ))}
-              </select>
-            </label>
-            <label className="block space-y-1.5">
-              <span className="text-sm font-medium">កាលបរិច្ឆេទ</span>
+              </ul>
+            )}
+          </section>
+        </>
+      ) : null}
+
+      {view === "list" || view === "income" || view === "expense" ? (
+        <>
+          <section className="surface calendar-month">
+            <div className="calendar-month-head">
+              <button
+                type="button"
+                className="btn btn-ghost btn-icon"
+                aria-label="ខែមុន"
+                onClick={() => setFinanceNav({ month: shiftMonth(month, -1) })}
+              >
+                <ChevronLeft size={20} />
+              </button>
+              <h2 className="calendar-month-title">{formatMonth(month)}</h2>
+              <button
+                type="button"
+                className="btn btn-ghost btn-icon"
+                aria-label="ខែបន្ទាប់"
+                onClick={() => setFinanceNav({ month: shiftMonth(month, 1) })}
+              >
+                <ChevronRight size={20} />
+              </button>
+            </div>
+          </section>
+
+          {view !== "list" ? (
+            <section className="surface calendar-day-panel">
+              <div className="calendar-day-head">
+                <div className="min-w-0">
+                  <p className="calendar-kicker">
+                    {view === "income" ? "ចំណូល" : "ចំណាយ"}
+                  </p>
+                  <h3 className="calendar-day-title">ប្រភេទខ្ពស់បំផុត</h3>
+                </div>
+              </div>
+              {categoryTotals.length === 0 ? (
+                <p className="calendar-day-empty">មិនទាន់មានទិន្នន័យ</p>
+              ) : (
+                <ul className="calendar-item-list">
+                  {categoryTotals.map((item) => (
+                    <li key={item.name} className="calendar-item">
+                      <div className="calendar-item-body">
+                        <p className="calendar-item-title">
+                          {categoryLabel(item.name)}
+                        </p>
+                      </div>
+                      <p
+                        className={`finance-amount ${
+                          view === "income" ? "is-income" : "is-expense"
+                        }`}
+                      >
+                        {formatMoneyPair(item.total).khr}
+                        <span className="finance-amount-fx">
+                          {formatMoneyPair(item.total).usd}
+                        </span>
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          ) : null}
+
+          <section className="surface calendar-day-panel calendar-list-panel">
+            {groupedList.length === 0 ? (
+              <EmptyState
+                title="មិនទាន់មានប្រតិបត្តិការ"
+                description="បន្ថែមចំណូល ឬចំណាយដើម្បីចាប់ផ្តើមកំណត់ត្រាលុយ។"
+              />
+            ) : (
+              <div className="calendar-agenda">
+                {groupedList.map(([iso, items]) => {
+                  let weekday = "";
+                  let day = iso;
+                  let monthLabel = "";
+                  try {
+                    const d = parseISO(iso);
+                    weekday = format(d, "EEEE", { locale: km });
+                    day = format(d, "d");
+                    monthLabel = format(d, "MMMM", { locale: km });
+                  } catch {
+                    weekday = iso;
+                  }
+                  return (
+                    <section key={iso} className="calendar-list-group">
+                      <div className="calendar-list-day-row">
+                        <button
+                          type="button"
+                          className={`calendar-list-day ${
+                            iso === todayISO() ? "is-today" : ""
+                          }`}
+                          onClick={() => {
+                            setSelectedISO(iso);
+                            setFinanceNav({ view: "month" });
+                          }}
+                        >
+                          <span className="calendar-list-day-num">{day}</span>
+                          <span className="calendar-list-day-copy">
+                            <strong>{weekday}</strong>
+                            <small>{monthLabel}</small>
+                          </span>
+                          <span className="calendar-day-count">{items.length}</span>
+                        </button>
+                      </div>
+                      <ul className="calendar-item-list">
+                        {items.map((item) => (
+                          <TransactionItem
+                            key={item.id}
+                            item={item}
+                            categoryLabel={categoryLabel}
+                            onEdit={() => openEdit(item)}
+                          />
+                        ))}
+                      </ul>
+                    </section>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        </>
+      ) : null}
+
+      <Modal
+        open={formOpen}
+        title={editingId ? "កែប្រតិបត្តិការ" : "ប្រតិបត្តិការថ្មី"}
+        onClose={closeForm}
+      >
+        <form className="event-form finance-form" onSubmit={onSubmit}>
+          <section className="event-card">
+            <div className="event-row event-row-stack">
+              <span className="event-row-label">ប្រភេទ</span>
+              <div className="event-period is-kinds" role="group" aria-label="ប្រភេទ">
+                <button
+                  type="button"
+                  data-active={type === "income"}
+                  aria-pressed={type === "income"}
+                  onClick={() => onTypeChange("income")}
+                >
+                  ចំណូល
+                
+                </button>
+                <button
+                  type="button"
+                  data-active={type === "expense"}
+                  aria-pressed={type === "expense"}
+                  onClick={() => onTypeChange("expense")}
+                >
+                  ចំណាយ
+                
+                </button>
+              </div>
+            </div>
+            <div className="event-row finance-amount-row">
+              <span className="event-row-label">ចំនួន</span>
               <input
-                className="input"
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
+                className="event-row-input"
+                type="number"
+                min={1}
+                step={1}
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder={currency === "KHR" ? "20000" : "50"}
                 required
               />
-            </label>
-          </div>
-          <label className="block space-y-1.5">
-            <span className="text-sm font-medium">កំណត់ចំណាំ</span>
-            <input
-              className="input"
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="កំណត់ចំណាំ (ស្រេចចិត្ត)"
+              <div className="event-period" role="group" aria-label="រូបិយប័ណ្ណ">
+                <button
+                  type="button"
+                  data-active={currency === "KHR"}
+                  aria-pressed={currency === "KHR"}
+                  onClick={() => setCurrency("KHR")}
+                >
+                  រៀល
+                
+                </button>
+                <button
+                  type="button"
+                  data-active={currency === "USD"}
+                  aria-pressed={currency === "USD"}
+                  onClick={() => setCurrency("USD")}
+                >
+                  ដុល្លារ
+                
+                </button>
+              </div>
+            </div>
+            <CategoryPicker
+              label="ប្រភេទលុយ"
+              kind={type === "income" ? "income" : "expense"}
+              value={category}
+              onChange={setCategory}
             />
-          </label>
-          <div className="flex justify-end gap-2 border-t border-line pt-4">
-            <button type="button" className="btn btn-ghost" onClick={() => setOpen(false)}>
-              បោះបង់
-            </button>
+            <DatePickerField
+              label="ថ្ងៃ"
+              value={date}
+              onChange={setDate}
+              required
+            />
+            <label className="event-notes-field">
+              <span className="event-row-label">កំណត់ចំណាំ</span>
+              <textarea
+                className="event-notes-input"
+                rows={2}
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="ព័ត៌មានបន្ថែម..."
+              />
+            </label>
+          </section>
+
+          <div className="form-actions event-form-actions">
+            {editingId ? (
+              <button
+                type="button"
+                className="btn btn-danger"
+                onClick={onDeleteCurrent}
+              >
+                <Trash2 size={15} /> លុប
+              </button>
+            ) : (
+              <button type="button" className="btn btn-ghost" onClick={closeForm}>
+                បោះបង់
+              </button>
+            )}
             <button type="submit" className="btn btn-primary">
-              រក្សាទុកប្រតិបត្តិការ
+              រក្សាទុក
             </button>
           </div>
         </form>
       </Modal>
     </div>
+  );
+}
+
+function TransactionItem({
+  item,
+  categoryLabel,
+  onEdit,
+}: {
+  item: Transaction;
+  categoryLabel: (id: string) => string;
+  onEdit: () => void;
+}) {
+  const saved = isSavingsTx(item);
+  const tone = item.type === "income" ? "income" : saved ? "save" : "expense";
+  const sign = item.type === "income" || saved ? "+" : "-";
+  const pair = formatMoneyPair(toUsd(item.amount, item.currency));
+  const typeLabel = saved
+    ? labelTransactionType("save")
+    : labelTransactionType(item.type);
+
+  return (
+    <li>
+      <button
+        type="button"
+        className={`calendar-item is-tap-edit finance-tx ${tone}`}
+        onClick={onEdit}
+      >
+        <div className="calendar-item-body">
+          <p className="calendar-item-title">{categoryLabel(item.category)}</p>
+          <p className="calendar-item-meta">
+            <span className={`finance-tx-kind is-${tone}`}>{typeLabel}</span>
+            {item.note ? <span className="finance-tx-note">{item.note}</span> : null}
+          </p>
+        </div>
+        <div className={`finance-tx-amount is-${tone}`}>
+          <strong>
+            {sign}
+            {pair.khr}
+          </strong>
+          <span>
+            {sign}
+            {pair.usd}
+          </span>
+        </div>
+      </button>
+    </li>
   );
 }

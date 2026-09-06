@@ -9,16 +9,54 @@ import type {
   ActivityRepeat,
   ActivityStatus,
   CalendarEvent,
+  EventAlert,
+  EventEndRepeat,
+  EventRepeatFrequency,
+  EventTravelTime,
   FamilyGoal,
+  FinanceCatalogKind,
   FinanceCategory,
+  FinanceCategoryOption,
   FolderColor,
   FolderPriority,
   GoalStatus,
+  MoneyCurrency,
   Reminder,
+  TelegramSettings,
   Transaction,
   TransactionType,
+  UserProfile,
 } from "./types";
-import { todayISO, uid, normalizeRepeatDays } from "./utils";
+import {
+  todayISO,
+  uid,
+  normalizeRepeatDays,
+  normalizeEventAlert,
+  normalizeEventEndRepeat,
+  normalizeEventRepeatFrequency,
+  normalizeEventTravelTime,
+  normalizeSendTime,
+  normalizeMoneyCurrency,
+  normalizeGoalDates,
+  withGoalCurrents,
+  goalIsReached,
+  normalizeGoalContributions,
+  seedGoalContributions,
+  clampDateToGoalRange,
+  defaultIncomeCategories,
+  defaultExpenseCategories,
+  defaultSaveCategories,
+  normalizeFinanceCategories,
+} from "./utils";
+import { buildDemoFinanceTransactions } from "./seedFinance";
+
+function catalogKey(
+  kind: FinanceCatalogKind
+): "incomeCategories" | "expenseCategories" | "saveCategories" {
+  if (kind === "income") return "incomeCategories";
+  if (kind === "save") return "saveCategories";
+  return "expenseCategories";
+}
 
 interface TrackingStore {
   activities: Activity[];
@@ -27,8 +65,24 @@ interface TrackingStore {
   activityFolders: ActivityFolder[];
   events: CalendarEvent[];
   reminders: Reminder[];
+  incomeCategories: FinanceCategoryOption[];
+  expenseCategories: FinanceCategoryOption[];
+  saveCategories: FinanceCategoryOption[];
+  telegramSettings: TelegramSettings;
+  profile: UserProfile | null;
+  signedIn: boolean;
   hydrated: boolean;
   setHydrated: (value: boolean) => void;
+  setTelegramSettings: (patch: Partial<TelegramSettings>) => void;
+  setProfile: (patch: Partial<UserProfile>) => void;
+  clearProfile: () => void;
+  login: (username: string, password: string) => string | null;
+  signUp: (input: {
+    name: string;
+    username: string;
+    password: string;
+  }) => string | null;
+  signOut: () => void;
 
   addActivity: (input: {
     title: string;
@@ -60,6 +114,7 @@ interface TrackingStore {
   addTransaction: (input: {
     type: TransactionType;
     amount: number;
+    currency?: MoneyCurrency;
     category: FinanceCategory;
     note?: string;
     date?: string;
@@ -69,17 +124,31 @@ interface TrackingStore {
     patch: Partial<Omit<Transaction, "id" | "createdAt">>
   ) => void;
   deleteTransaction: (id: string) => void;
+  addFinanceCategory: (kind: FinanceCatalogKind, label: string) => string | null;
+  updateFinanceCategory: (
+    kind: FinanceCatalogKind,
+    id: string,
+    label: string
+  ) => boolean;
+  deleteFinanceCategory: (kind: FinanceCatalogKind, id: string) => boolean;
 
   addGoal: (input: {
     title: string;
     description?: string;
     targetAmount: number;
     currentAmount?: number;
+    currency?: MoneyCurrency;
+    startDate: string;
     targetDate: string;
     members?: string[];
   }) => void;
   updateGoal: (id: string, patch: Partial<Omit<FamilyGoal, "id" | "createdAt">>) => void;
-  contributeGoal: (id: string, amount: number) => void;
+  contributeGoal: (
+    id: string,
+    amount: number,
+    currency?: MoneyCurrency,
+    date?: string
+  ) => void;
   deleteGoal: (id: string) => void;
   setGoalStatus: (id: string, status: GoalStatus) => void;
 
@@ -88,12 +157,18 @@ interface TrackingStore {
     location?: string;
     notes?: string;
     date?: string;
+    endDate?: string;
     startTime?: string;
     endTime?: string;
     allDay?: boolean;
-    repeat?: ActivityRepeat[];
+    folderId?: string | null;
+    travelTime?: EventTravelTime;
+    repeatFrequency?: EventRepeatFrequency;
+    endRepeat?: EventEndRepeat;
+    alert?: EventAlert;
   }) => void;
   updateEvent: (id: string, patch: Partial<Omit<CalendarEvent, "id" | "createdAt">>) => void;
+  setEventCompleted: (id: string, completed: boolean) => void;
   deleteEvent: (id: string) => void;
 
   addReminder: (input: {
@@ -102,6 +177,7 @@ interface TrackingStore {
     dueDate?: string;
     dueTime?: string;
     repeat?: ActivityRepeat[];
+    alert?: EventAlert;
   }) => void;
   updateReminder: (id: string, patch: Partial<Omit<Reminder, "id" | "createdAt">>) => void;
   toggleReminder: (id: string) => void;
@@ -117,8 +193,104 @@ export const useTrackingStore = create<TrackingStore>()(
       activityFolders: [],
       events: [],
       reminders: [],
+      incomeCategories: defaultIncomeCategories(),
+      expenseCategories: defaultExpenseCategories(),
+      saveCategories: defaultSaveCategories(),
+      telegramSettings: {
+        botToken: "",
+        chatId: "",
+        enabled: false,
+        sendTime: "07:00",
+        eveningTime: "18:00",
+        lastAutoSentDate: "",
+        lastEveningSentDate: "",
+        autoSentEventDate: "",
+        autoSentEventIds: [],
+      },
+      profile: null,
+      signedIn: false,
       hydrated: false,
       setHydrated: (value) => set({ hydrated: value }),
+      setProfile: (patch) => {
+        const current = get().profile;
+        const name = (patch.name ?? current?.name ?? "").trim();
+        if (!name) {
+          set({ profile: null, signedIn: false });
+          return;
+        }
+        const username = (patch.username ?? current?.username ?? "").trim();
+        const password =
+          patch.password !== undefined
+            ? patch.password
+            : current?.password ?? "";
+        const photo =
+          patch.photo !== undefined ? patch.photo : current?.photo;
+        set({
+          profile: {
+            name,
+            username,
+            password,
+            ...(photo ? { photo } : {}),
+          },
+          signedIn: true,
+        });
+      },
+      clearProfile: () => set({ profile: null, signedIn: false }),
+      signOut: () => set({ signedIn: false }),
+      signUp: ({ name, username, password }) => {
+        const nextName = name.trim();
+        const nextUser = username.trim();
+        if (!nextName) return "បញ្ចូលឈ្មោះ";
+        if (!nextUser) return "បញ្ចូលឈ្មោះអ្នកប្រើ";
+        if (!password.trim()) return "បញ្ចូលពាក្យសម្ងាត់";
+        const existing = get().profile;
+        if (existing?.username || existing?.password) {
+          return "មានគណនីរួចហើយ — សូមចូល";
+        }
+        set({
+          profile: {
+            name: nextName,
+            username: nextUser,
+            password,
+            ...(existing?.photo ? { photo: existing.photo } : {}),
+          },
+          signedIn: true,
+        });
+        return null;
+      },
+      login: (username, password) => {
+        const nextUser = username.trim();
+        if (!nextUser) return "បញ្ចូលឈ្មោះអ្នកប្រើ";
+        if (!password.trim()) return "បញ្ចូលពាក្យសម្ងាត់";
+        const existing = get().profile;
+        if (!existing) return "មិនទាន់មានគណនី — សូមបង្កើតគណនី";
+        const storedUser = (existing.username || existing.name || "").trim();
+        if (storedUser !== nextUser || existing.password !== password) {
+          return "ឈ្មោះអ្នកប្រើ ឬ ពាក្យសម្ងាត់មិនត្រូវ";
+        }
+        if (!existing.username) {
+          get().setProfile({ username: nextUser });
+        }
+        set({ signedIn: true });
+        return null;
+      },
+
+      setTelegramSettings: (patch) => {
+        const current = get().telegramSettings;
+        set({
+          telegramSettings: {
+            ...current,
+            ...patch,
+            botToken: (patch.botToken ?? current.botToken).trim(),
+            chatId: (patch.chatId ?? current.chatId).trim(),
+            sendTime: normalizeSendTime(patch.sendTime ?? current.sendTime),
+            eveningTime: normalizeSendTime(
+              patch.eveningTime ?? current.eveningTime,
+              "18:00"
+            ),
+          },
+        });
+      },
 
       addActivity: (input) => {
         const activity: Activity = {
@@ -238,6 +410,7 @@ export const useTrackingStore = create<TrackingStore>()(
           id: uid(),
           type: input.type,
           amount: Math.max(0, Number(input.amount) || 0),
+          currency: normalizeMoneyCurrency(input.currency ?? "KHR"),
           category: input.category,
           note: input.note?.trim() ?? "",
           date: input.date ?? todayISO(),
@@ -248,9 +421,17 @@ export const useTrackingStore = create<TrackingStore>()(
 
       updateTransaction: (id, patch) => {
         set({
-          transactions: get().transactions.map((item) =>
-            item.id === id ? { ...item, ...patch } : item
-          ),
+          transactions: get().transactions.map((item) => {
+            if (item.id !== id) return item;
+            const next = { ...item, ...patch };
+            return {
+              ...next,
+              note: (patch.note ?? next.note).trim(),
+              amount: Math.max(0, Number(patch.amount ?? next.amount) || 0),
+              currency: normalizeMoneyCurrency(patch.currency ?? next.currency),
+              date: patch.date ?? next.date,
+            };
+          }),
         });
       },
 
@@ -260,15 +441,80 @@ export const useTrackingStore = create<TrackingStore>()(
         });
       },
 
+      addFinanceCategory: (kind, label) => {
+        const name = label.trim();
+        if (!name) return null;
+        const key = catalogKey(kind);
+        const current = get()[key];
+        if (current.some((item) => item.label === name)) {
+          return current.find((item) => item.label === name)?.id ?? null;
+        }
+        const option: FinanceCategoryOption = {
+          id: `cat-${uid()}`,
+          label: name,
+        };
+        set({ [key]: [...current, option] });
+        return option.id;
+      },
+
+      updateFinanceCategory: (kind, id, label) => {
+        const name = label.trim();
+        if (!name || id === "savings") return false;
+        const key = catalogKey(kind);
+        const current = get()[key];
+        if (!current.some((item) => item.id === id)) return false;
+        set({
+          [key]: current.map((item) =>
+            item.id === id ? { ...item, label: name } : item
+          ),
+        });
+        return true;
+      },
+
+      deleteFinanceCategory: (kind, id) => {
+        if (id === "savings" || id === "other") return false;
+        const key = catalogKey(kind);
+        const current = get()[key];
+        const next = current.filter((item) => item.id !== id);
+        if (next.length === current.length || next.length === 0) return false;
+        const fallback =
+          next.find((item) => item.id === "other")?.id ?? next[0].id;
+        set({
+          [key]: next,
+          transactions: get().transactions.map((item) =>
+            item.type === kind && item.category === id
+              ? { ...item, category: fallback }
+              : item
+          ),
+        });
+        return true;
+      },
+
       addGoal: (input) => {
+        const dates = normalizeGoalDates({
+          startDate: input.startDate,
+          targetDate: input.targetDate,
+        });
+        const currency = normalizeMoneyCurrency(input.currency ?? "KHR");
+        const entered = Math.max(0, Number(input.currentAmount) || 0);
+        const currents = withGoalCurrents({
+          currency,
+          currentKhr: currency === "KHR" ? entered : 0,
+          currentUsd: currency === "USD" ? entered : 0,
+        });
         const goal: FamilyGoal = {
           id: uid(),
           title: input.title.trim(),
           description: input.description?.trim() ?? "",
           targetAmount: Math.max(0, Number(input.targetAmount) || 0),
-          currentAmount: Math.max(0, Number(input.currentAmount) || 0),
-          targetDate: input.targetDate,
+          currentAmount: currents.currentAmount,
+          currentKhr: currents.currentKhr,
+          currentUsd: currents.currentUsd,
+          currency,
+          startDate: dates.startDate,
+          targetDate: dates.targetDate,
           members: input.members?.map((m) => m.trim()).filter(Boolean) ?? [],
+          contributions: seedGoalContributions(currents, dates.startDate),
           status: "active",
           createdAt: new Date().toISOString(),
         };
@@ -277,21 +523,107 @@ export const useTrackingStore = create<TrackingStore>()(
 
       updateGoal: (id, patch) => {
         set({
-          goals: get().goals.map((item) =>
-            item.id === id ? { ...item, ...patch } : item
-          ),
+          goals: get().goals.map((item) => {
+            if (item.id !== id) return item;
+            const next = { ...item, ...patch };
+            const dates = normalizeGoalDates({
+              startDate: next.startDate,
+              targetDate: next.targetDate,
+              createdAt: next.createdAt,
+            });
+            const currency = normalizeMoneyCurrency(
+              patch.currency ?? next.currency
+            );
+            const existing = withGoalCurrents(item);
+            const enteredCurrent = Math.max(
+              0,
+              Number(patch.currentAmount ?? next.currentAmount) || 0
+            );
+            const currents = withGoalCurrents({
+              currency,
+              currentKhr:
+                patch.currentKhr ??
+                (currency === "KHR" ? enteredCurrent : existing.currentKhr),
+              currentUsd:
+                patch.currentUsd ??
+                (currency === "USD" ? enteredCurrent : existing.currentUsd),
+            });
+            const existingContributions = normalizeGoalContributions(
+              next.contributions ?? item.contributions
+            );
+            const extras = seedGoalContributions(
+              {
+                currentKhr: Math.max(
+                  0,
+                  currents.currentKhr - existing.currentKhr
+                ),
+                currentUsd: Math.max(
+                  0,
+                  currents.currentUsd - existing.currentUsd
+                ),
+              },
+              dates.startDate
+            );
+            const updated: FamilyGoal = {
+              ...next,
+              title: (patch.title ?? next.title).trim(),
+              description: (patch.description ?? next.description).trim(),
+              targetAmount: Math.max(
+                0,
+                Number(patch.targetAmount ?? next.targetAmount) || 0
+              ),
+              currentAmount: currents.currentAmount,
+              currentKhr: currents.currentKhr,
+              currentUsd: currents.currentUsd,
+              currency,
+              startDate: dates.startDate,
+              targetDate: dates.targetDate,
+              members: (patch.members ?? next.members)
+                .map((m) => m.trim())
+                .filter(Boolean),
+              contributions: [...existingContributions, ...extras],
+            };
+            return {
+              ...updated,
+              status: goalIsReached(updated)
+                ? "completed"
+                : updated.status,
+            };
+          }),
         });
       },
 
-      contributeGoal: (id, amount) => {
+      contributeGoal: (id, amount, currency, date) => {
         const value = Math.max(0, Number(amount) || 0);
         set({
           goals: get().goals.map((item) => {
             if (item.id !== id) return item;
-            const currentAmount = item.currentAmount + value;
-            const status =
-              currentAmount >= item.targetAmount ? "completed" : item.status;
-            return { ...item, currentAmount, status };
+            const existing = withGoalCurrents(item);
+            const kind = normalizeMoneyCurrency(currency ?? item.currency);
+            const currents = withGoalCurrents({
+              currency: item.currency,
+              currentKhr:
+                existing.currentKhr + (kind === "KHR" ? value : 0),
+              currentUsd:
+                existing.currentUsd + (kind === "USD" ? value : 0),
+            });
+            const next = {
+              ...item,
+              ...currents,
+              contributions: [
+                ...normalizeGoalContributions(item.contributions),
+                {
+                  id: uid(),
+                  amount: value,
+                  currency: kind,
+                  date: clampDateToGoalRange(date || todayISO(), item),
+                },
+              ],
+            };
+            return {
+              ...next,
+              status: goalIsReached(next) ? "completed" : item.status,
+            };
           }),
         });
       },
@@ -310,16 +642,25 @@ export const useTrackingStore = create<TrackingStore>()(
 
       addEvent: (input) => {
         const allDay = Boolean(input.allDay);
+        const date = input.date ?? todayISO();
+        const endDate = input.endDate && input.endDate >= date ? input.endDate : date;
         const event: CalendarEvent = {
           id: uid(),
           title: input.title.trim(),
           location: input.location?.trim() ?? "",
           notes: input.notes?.trim() ?? "",
-          date: input.date ?? todayISO(),
+          date,
+          endDate,
           startTime: allDay ? "" : input.startTime ?? "",
           endTime: allDay ? "" : input.endTime ?? "",
           allDay,
-          repeat: input.repeat ?? [],
+          folderId: input.folderId ? String(input.folderId) : null,
+          repeat: [],
+          travelTime: normalizeEventTravelTime(input.travelTime),
+          repeatFrequency: normalizeEventRepeatFrequency(input.repeatFrequency),
+          endRepeat: normalizeEventEndRepeat(input.endRepeat, date),
+          alert: normalizeEventAlert(input.alert),
+          completed: false,
           createdAt: new Date().toISOString(),
         };
         set({ events: [event, ...get().events] });
@@ -329,6 +670,20 @@ export const useTrackingStore = create<TrackingStore>()(
         set({
           events: get().events.map((item) =>
             item.id === id ? { ...item, ...patch } : item
+          ),
+        });
+      },
+
+      setEventCompleted: (id, completed) => {
+        set({
+          events: get().events.map((item) =>
+            item.id === id
+              ? {
+                  ...item,
+                  completed,
+                  completedAt: completed ? new Date().toISOString() : undefined,
+                }
+              : item
           ),
         });
       },
@@ -346,6 +701,7 @@ export const useTrackingStore = create<TrackingStore>()(
           dueTime: input.dueTime ?? "",
           completed: false,
           repeat: input.repeat ?? [],
+          alert: normalizeEventAlert(input.alert),
           createdAt: new Date().toISOString(),
         };
         set({ reminders: [reminder, ...get().reminders] });
@@ -380,12 +736,59 @@ export const useTrackingStore = create<TrackingStore>()(
         activityFolders: state.activityFolders,
         events: state.events,
         reminders: state.reminders,
+        incomeCategories: state.incomeCategories,
+        expenseCategories: state.expenseCategories,
+        saveCategories: state.saveCategories,
+        telegramSettings: state.telegramSettings,
+        profile: state.profile,
+        signedIn: state.signedIn,
       }),
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<TrackingStore>;
         return {
           ...current,
           ...p,
+          telegramSettings: {
+            botToken: p.telegramSettings?.botToken?.trim() ?? "",
+            chatId: p.telegramSettings?.chatId?.trim() ?? "",
+            enabled: Boolean(p.telegramSettings?.enabled),
+            sendTime: normalizeSendTime(p.telegramSettings?.sendTime),
+            eveningTime: normalizeSendTime(
+              p.telegramSettings?.eveningTime,
+              "18:00"
+            ),
+            lastAutoSentDate: p.telegramSettings?.lastAutoSentDate ?? "",
+            lastEveningSentDate: p.telegramSettings?.lastEveningSentDate ?? "",
+            autoSentEventDate: p.telegramSettings?.autoSentEventDate ?? "",
+            autoSentEventIds: Array.isArray(p.telegramSettings?.autoSentEventIds)
+              ? p.telegramSettings.autoSentEventIds.filter(
+                  (id): id is string => typeof id === "string" && id.length > 0
+                )
+              : [],
+          },
+          profile:
+            typeof p.profile?.name === "string" && p.profile.name.trim()
+              ? {
+                  name: p.profile.name.trim(),
+                  username:
+                    typeof p.profile.username === "string" &&
+                    p.profile.username.trim()
+                      ? p.profile.username.trim()
+                      : p.profile.name.trim(),
+                  password:
+                    typeof p.profile.password === "string"
+                      ? p.profile.password
+                      : "",
+                  ...(typeof p.profile.photo === "string" && p.profile.photo
+                    ? { photo: p.profile.photo }
+                    : {}),
+                }
+              : null,
+          signedIn:
+            p.signedIn === true ||
+            (p.signedIn == null &&
+              typeof p.profile?.name === "string" &&
+              Boolean(p.profile.name.trim())),
           activities: (p.activities ?? []).map((a) => ({
             ...a,
             folderId: a.folderId ?? null,
@@ -394,21 +797,95 @@ export const useTrackingStore = create<TrackingStore>()(
               a.repeat as ActivityRepeat[] | ActivityRepeat | "none" | undefined
             ),
           })),
+          goals: (p.goals ?? []).map((g) => {
+            const dates = normalizeGoalDates({
+              startDate: g.startDate,
+              targetDate: g.targetDate,
+              createdAt: g.createdAt,
+            });
+            const currency = normalizeMoneyCurrency(g.currency);
+            const currents = withGoalCurrents({
+              currency,
+              currentAmount: g.currentAmount,
+              currentKhr: g.currentKhr,
+              currentUsd: g.currentUsd,
+            });
+            return {
+              ...g,
+              description: g.description ?? "",
+              targetAmount: Math.max(0, Number(g.targetAmount) || 0),
+              currentAmount: currents.currentAmount,
+              currentKhr: currents.currentKhr,
+              currentUsd: currents.currentUsd,
+              currency,
+              startDate: dates.startDate,
+              targetDate: dates.targetDate,
+              contributions: (() => {
+                const existing = normalizeGoalContributions(g.contributions);
+                if (existing.length) return existing;
+                return seedGoalContributions(currents, dates.startDate);
+              })(),
+              members: Array.isArray(g.members)
+                ? g.members.map((m) => String(m).trim()).filter(Boolean)
+                : [],
+              status:
+                g.status === "completed" || g.status === "paused"
+                  ? g.status
+                  : "active",
+            };
+          }),
           activityFolders: (p.activityFolders ?? []).map((f) => ({
             ...f,
             parentId: f.parentId ?? null,
           })),
-          events: (p.events ?? []).map((e) => ({
-            ...e,
-            location: e.location ?? "",
-            notes: e.notes ?? "",
-            allDay: Boolean(e.allDay),
-            startTime: e.startTime ?? "",
-            endTime: e.endTime ?? "",
-            repeat: normalizeRepeatDays(
+          events: (p.events ?? []).map((e) => {
+            const date = e.date || todayISO();
+            const legacyDays = normalizeRepeatDays(
               e.repeat as ActivityRepeat[] | ActivityRepeat | "none" | undefined
-            ),
-          })),
+            );
+            return {
+              ...e,
+              location: e.location ?? "",
+              notes: e.notes ?? "",
+              allDay: Boolean(e.allDay),
+              endDate: e.endDate && e.endDate >= date ? e.endDate : date,
+              startTime: e.startTime ?? "",
+              endTime: e.endTime ?? "",
+              folderId: e.folderId ?? null,
+              repeat: legacyDays,
+              travelTime: normalizeEventTravelTime(e.travelTime),
+              repeatFrequency: normalizeEventRepeatFrequency(
+                e.repeatFrequency ?? (legacyDays.length ? "weekly" : "never")
+              ),
+              endRepeat: normalizeEventEndRepeat(e.endRepeat, date),
+              alert: normalizeEventAlert(e.alert),
+              completed: Boolean(e.completed),
+              completedAt: e.completedAt,
+            };
+          }),
+          transactions: (() => {
+            const existing = (p.transactions ?? []).map((t) => ({
+              ...t,
+              currency: normalizeMoneyCurrency(t.currency),
+            }));
+            const hasDemo = existing.some((t) =>
+              String(t.id).startsWith("demo-tx-")
+            );
+            if (hasDemo) return existing;
+            return [...buildDemoFinanceTransactions(100), ...existing];
+          })(),
+          incomeCategories: normalizeFinanceCategories(
+            p.incomeCategories,
+            defaultIncomeCategories()
+          ),
+          expenseCategories: normalizeFinanceCategories(
+            p.expenseCategories,
+            defaultExpenseCategories()
+          ),
+          saveCategories: normalizeFinanceCategories(
+            p.saveCategories,
+            defaultSaveCategories()
+          ),
           reminders: (p.reminders ?? []).map((r) => ({
             ...r,
             notes: r.notes ?? "",
@@ -417,6 +894,7 @@ export const useTrackingStore = create<TrackingStore>()(
             repeat: normalizeRepeatDays(
               r.repeat as ActivityRepeat[] | ActivityRepeat | "none" | undefined
             ),
+            alert: normalizeEventAlert(r.alert),
           })),
         };
       },

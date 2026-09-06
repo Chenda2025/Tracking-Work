@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
@@ -17,18 +17,28 @@ export function Modal({
   children: React.ReactNode;
   size?: "sm" | "md";
 }) {
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const [backdropReady, setBackdropReady] = useState(false);
+
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      setBackdropReady(false);
+      return;
+    }
+    setBackdropReady(false);
+    const arm = window.setTimeout(() => setBackdropReady(true), 700);
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") onCloseRef.current();
     };
     document.body.style.overflow = "hidden";
     window.addEventListener("keydown", onKey);
     return () => {
+      window.clearTimeout(arm);
       document.body.style.overflow = "";
       window.removeEventListener("keydown", onKey);
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open || typeof document === "undefined") return null;
 
@@ -36,11 +46,15 @@ export function Modal({
 
   return createPortal(
     <div className="modal-overlay">
-      <button
-        type="button"
-        className="absolute inset-0 bg-ink/35 backdrop-blur-[2px]"
-        aria-label="បិទប្រអប់"
-        onClick={onClose}
+      <div
+        className="modal-backdrop"
+        aria-hidden
+        style={{ pointerEvents: backdropReady ? "auto" : "none" }}
+        onPointerDown={(e) => {
+          if (!backdropReady) return;
+          if (e.target !== e.currentTarget) return;
+          onCloseRef.current();
+        }}
       />
       <div
         className={`surface-raised modal-panel relative z-10 w-full ${width} animate-rise`}
