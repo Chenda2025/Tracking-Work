@@ -128,38 +128,27 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {/* Phone / iPad top brand bar */}
         <header className="app-topbar">
           <div className="app-topbar-row">
-            <h1 className="app-topbar-title">ការងារប្រចាំថ្ងៃ</h1>
+            {nowStamp ? (
+              <div
+                className="app-topbar-copy"
+                aria-live="polite"
+                aria-label={nowStamp.label}
+              >
+                <p className="app-topbar-kicker">{nowStamp.weekday}</p>
+                <h1 className="app-topbar-solar">{nowStamp.solar}</h1>
+                <p className="app-topbar-lunar">
+                  <span>{nowStamp.moon}</span>
+                  <span>{nowStamp.month}</span>
+                  {nowStamp.observance ? (
+                    <span>{nowStamp.observance}</span>
+                  ) : null}
+                </p>
+              </div>
+            ) : (
+              <div className="app-topbar-copy" />
+            )}
             <ProfileButton />
           </div>
-          {nowStamp ? (
-            <p
-              className="app-topbar-datetime"
-              aria-live="polite"
-              aria-label={nowStamp.label}
-            >
-              <span className="app-topbar-date-line">
-                <span>{nowStamp.weekday}</span>
-                <i aria-hidden />
-                <span>{nowStamp.moon}</span>
-                <i aria-hidden />
-                <span>{nowStamp.month}</span>
-                <i aria-hidden />
-                <span>{nowStamp.year}</span>
-                <i aria-hidden />
-                <span>{nowStamp.sak}</span>
-                <i aria-hidden />
-                <span>{nowStamp.be}</span>
-                <i aria-hidden />
-                <span>{nowStamp.solar}</span>
-                {nowStamp.observance ? (
-                  <>
-                    <i aria-hidden />
-                    <span>{nowStamp.observance}</span>
-                  </>
-                ) : null}
-              </span>
-            </p>
-          ) : null}
         </header>
 
         <main className="app-main">{children}</main>

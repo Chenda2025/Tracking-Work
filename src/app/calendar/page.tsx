@@ -19,12 +19,13 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Clock,
   Folder,
   MoreVertical,
   Pencil,
   Plus,
   Repeat,
-  Settings2,
+  Send,
   Trash2,
 } from "lucide-react";
 import { DatePickerField } from "@/components/DatePicker";
@@ -32,7 +33,6 @@ import { DoneExportModal } from "@/components/DoneExportModal";
 import { EmptyState } from "@/components/EmptyState";
 import { HydrationGate } from "@/components/HydrationGate";
 import { Modal } from "@/components/Modal";
-import { TelegramConfigModal } from "@/components/TelegramConfigModal";
 import { useTrackingStore } from "@/lib/store";
 import type {
   ActivityRepeat,
@@ -146,7 +146,6 @@ function CalendarContent() {
   const [editingEventId, setEditingEventId] = useState<string | null>(null);
   const [repeatingEventId, setRepeatingEventId] = useState<string | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
-  const [telegramConfigOpen, setTelegramConfigOpen] = useState(false);
 
   const [eventTitle, setEventTitle] = useState("");
   const [eventLocation, setEventLocation] = useState("");
@@ -248,6 +247,7 @@ function CalendarContent() {
     () => folders.find((f) => f.id === browseFolderId) ?? null,
     [folders, browseFolderId]
   );
+  const currentFolderColor = folderColorMeta(currentFolder?.color);
   const folderScopeIds = useMemo(() => {
     if (!browseFolderId) return new Set<string>();
     const ids = new Set<string>([browseFolderId]);
@@ -665,20 +665,14 @@ function CalendarContent() {
             <div className="calendar-done-actions">
               <button
                 type="button"
-                className="btn btn-secondary btn-telegram-config"
-                aria-label="ការកំណត់ Telegram"
-                title="ការកំណត់ Telegram"
-                onClick={() => setTelegramConfigOpen(true)}
-              >
-                <Settings2 size={16} />
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary"
+                className="toolbar-send"
+                aria-label="ផ្ញើទៅ Telegram"
+                title="ផ្ញើទៅ Telegram"
                 disabled={doneEvents.length === 0}
                 onClick={() => setExportOpen(true)}
               >
-                នាំចេញ
+                <Send size={15} />
+                ផ្ញើ
               </button>
             </div>
           ) : (
@@ -913,7 +907,6 @@ function CalendarContent() {
                       <EventAgendaItem
                         key={item.id}
                         item={item}
-                        compact
                         onEdit={() => openEditEvent(item)}
                         onRepeat={() => openRepeatEvent(item)}
                         onDelete={() => deleteEvent(item.id)}
@@ -923,7 +916,6 @@ function CalendarContent() {
                       <ReminderAgendaItem
                         key={item.id}
                         item={item}
-                        compact
                       />
                     ))}
                   </ul>
@@ -950,14 +942,29 @@ function CalendarContent() {
                 <span
                   className="calendar-folder-icon"
                   style={{
-                    backgroundColor: folderColorMeta(currentFolder?.color).swatch,
+                    backgroundColor: currentFolderColor.soft,
+                    color: currentFolderColor.swatch,
                   }}
                 >
-                  <Folder size={16} />
+                  <Folder size={18} />
                 </span>
-                <h3 className="calendar-folder-hero-title">
-                  {currentFolder?.name ?? "ថត"}
-                </h3>
+                <div className="calendar-folder-hero-text">
+                  <h3 className="calendar-folder-hero-title">
+                    {currentFolder?.name ?? "ថត"}
+                  </h3>
+                  <p className="calendar-folder-hero-meta">
+                    <span
+                      className={`calendar-folder-priority is-${currentFolder?.priority ?? "medium"}`}
+                    >
+                      {labelFolderPriority(currentFolder?.priority)}
+                    </span>
+                    {folderEvents.length ? (
+                      <span className="calendar-folder-count">
+                        {folderEvents.length}
+                      </span>
+                    ) : null}
+                  </p>
+                </div>
               </div>
               <button
                 type="button"
@@ -981,18 +988,19 @@ function CalendarContent() {
                 <span>បន្ថែមព្រឹត្តិការណ៍</span>
               </button>
             ) : (
-              <ul className="calendar-item-list">
+              <ul className="calendar-folder-event-list">
                 {folderEvents.map((item) => (
                   <EventAgendaItem
                     key={item.id}
                     item={item}
                     showDate
                     compact
+                    accent={currentFolderColor}
+                    showMenu={false}
                     onToggleComplete={() =>
                       setEventCompleted(item.id, !item.completed)
                     }
                     onEdit={() => openEditEvent(item)}
-                    onRepeat={() => openRepeatEvent(item)}
                     onDelete={() => deleteEvent(item.id)}
                   />
                 ))}
@@ -1037,9 +1045,12 @@ function CalendarContent() {
                       >
                         <span
                           className="calendar-folder-icon"
-                          style={{ backgroundColor: color.swatch }}
+                          style={{
+                            backgroundColor: color.soft,
+                            color: color.swatch,
+                          }}
                         >
-                          <Folder size={16} />
+                          <Folder size={18} />
                         </span>
                         <span className="calendar-folder-copy">
                           <span className="calendar-folder-name">{folder.name}</span>
@@ -1114,11 +1125,6 @@ function CalendarContent() {
         items={doneEvents}
         folderNameById={folderNameById}
         onClose={() => setExportOpen(false)}
-      />
-
-      <TelegramConfigModal
-        open={telegramConfigOpen}
-        onClose={() => setTelegramConfigOpen(false)}
       />
 
       <Modal
@@ -1723,6 +1729,7 @@ function EventAgendaItem({
   folderName,
   showDate,
   compact,
+  accent,
   showMenu = true,
   onToggleComplete,
   onEdit,
@@ -1733,6 +1740,7 @@ function EventAgendaItem({
   folderName?: string;
   showDate?: boolean;
   compact?: boolean;
+  accent?: { soft: string; swatch: string };
   showMenu?: boolean;
   onToggleComplete?: () => void;
   onEdit?: () => void;
@@ -1747,13 +1755,7 @@ function EventAgendaItem({
     item.endDate && item.endDate !== item.date
       ? `${formatShortDate(item.date)} – ${formatShortDate(item.endDate)}`
       : "";
-  const tags = compact
-    ? [
-        item.repeatFrequency && item.repeatFrequency !== "never"
-          ? labelEventRepeatFrequency(item.repeatFrequency)
-          : "",
-      ].filter(Boolean)
-    : [
+  const tags = [
         showDate && !span ? formatShortDate(item.date) : "",
         span,
         folderName ?? "",
@@ -1790,6 +1792,78 @@ function EventAgendaItem({
     };
   }, [menuOpen]);
 
+  if (compact) {
+    const timeLabel = when.end ? `${when.start} – ${when.end}` : when.start;
+    const dateLabel = span || (showDate ? formatShortDate(item.date) : "");
+    const repeatLabel =
+      item.repeatFrequency && item.repeatFrequency !== "never"
+        ? labelEventRepeatFrequency(item.repeatFrequency)
+        : "";
+
+    return (
+      <li className={`calendar-folder-event ${done ? "is-done" : ""}`}>
+        <button
+          type="button"
+          className="calendar-folder-event-open"
+          onClick={() => onEdit?.()}
+        >
+          <span
+            className="calendar-folder-icon"
+            style={{
+              backgroundColor: accent?.soft ?? "var(--brand-soft)",
+              color: accent?.swatch ?? "var(--brand-deep)",
+            }}
+          >
+            <Clock size={18} />
+          </span>
+          <span className="calendar-folder-event-copy">
+            <span className="calendar-folder-event-title">{item.title}</span>
+            <span className="calendar-folder-event-meta">
+              <span className="calendar-folder-event-time">{timeLabel}</span>
+              {dateLabel ? (
+                <span className="calendar-folder-count">{dateLabel}</span>
+              ) : null}
+              {repeatLabel ? (
+                <span className="calendar-folder-count">{repeatLabel}</span>
+              ) : null}
+              {item.location ? (
+                <span className="calendar-folder-event-place">{item.location}</span>
+              ) : null}
+            </span>
+          </span>
+        </button>
+        <div className="calendar-folder-actions">
+          {onToggleComplete ? (
+            <button
+              type="button"
+              className={`calendar-folder-complete ${done ? "is-on" : ""}`}
+              aria-label={done ? "ស្តារព្រឹត្តិការណ៍" : "សម្គាល់រួចរាល់"}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleComplete();
+              }}
+            >
+              {done ? <Check size={13} /> : null}
+            </button>
+          ) : null}
+          {onDelete ? (
+            <button
+              type="button"
+              className="calendar-folder-action is-delete"
+              aria-label="លុបព្រឹត្តិការណ៍"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete();
+              }}
+            >
+              <Trash2 size={15} />
+            </button>
+          ) : null}
+        </div>
+      </li>
+    );
+  }
+
   return (
     <li
       className={`calendar-item event ${done ? "is-done" : ""} ${
@@ -1815,7 +1889,7 @@ function EventAgendaItem({
             ))}
           </div>
         ) : null}
-        {!compact && item.notes ? (
+        {item.notes ? (
           <p className="calendar-item-notes">{item.notes}</p>
         ) : null}
       </div>
