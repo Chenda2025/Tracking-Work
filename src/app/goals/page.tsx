@@ -1,16 +1,20 @@
 "use client";
 
-import { FormEvent, Suspense, useMemo, useState } from "react";
+import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
+import { parseISO } from "date-fns";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronLeft, ChevronRight, Plus, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Send, Trash2 } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
 import { HydrationGate } from "@/components/HydrationGate";
 import { DatePickerField } from "@/components/DatePicker";
 import { Modal } from "@/components/Modal";
+import { TelegramConfigModal } from "@/components/TelegramConfigModal";
 import { useTrackingStore } from "@/lib/store";
+import { buildGoalsReport, sendTelegramMessage } from "@/lib/telegramDaily";
 import type { FamilyGoal, GoalStatus, MoneyCurrency } from "@/lib/types";
 import {
   GOAL_STATUSES,
+  REPORT_RANGES,
   clampDateToGoalRange,
   formatGoalMonthTick,
   formatMoney,
@@ -25,9 +29,12 @@ import {
   goalTargetUsd,
   labelGoalStatus,
   normalizeGoalDates,
+  reportPeriod,
+  shiftReportAnchor,
   sumGoalAmounts,
   todayISO,
   toKhr,
+  type ReportRange,
 } from "@/lib/utils";
 
 type GoalsView = "all" | "active" | "paused" | "completed";
@@ -67,8 +74,19 @@ function GoalsContent() {
   const contributeGoal = useTrackingStore((s) => s.contributeGoal);
   const setGoalStatus = useTrackingStore((s) => s.setGoalStatus);
   const deleteGoal = useTrackingStore((s) => s.deleteGoal);
+  const telegramSettings = useTrackingStore((s) => s.telegramSettings);
+  const ownerName = useTrackingStore((s) => s.profile?.name ?? "");
 
   const [formOpen, setFormOpen] = useState(false);
+  const [telegramOpen, setTelegramOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportRange, setReportRange] = useState<ReportRange>("month");
+  const [reportAnchor, setReportAnchor] = useState(() => parseISO(todayISO()));
+  const [sendingReport, setSendingReport] = useState(false);
+  const [sendStatus, setSendStatus] = useState<{
+    tone: "ok" | "err";
+    text: string;
+  } | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [contributeId, setContributeId] = useState<string | null>(null);
   const [contributeAmount, setContributeAmount] = useState("");
@@ -121,6 +139,67 @@ function GoalsContent() {
   }, [goals, view]);
 
   const contributeGoalItem = goals.find((g) => g.id === contributeId) ?? null;
+
+  const reportBounds = useMemo(
+    () => reportPeriod(reportRange, reportAnchor),
+    [reportRange, reportAnchor]
+  );
+  const reportPreview = useMemo(
+    () =>
+      buildGoalsReport({
+        periodLabel: reportBounds.label,
+        start: reportBounds.start,
+        end: reportBounds.end,
+        goals,
+        view,
+        ownerName,
+      }),
+    [reportBounds, goals, view, ownerName]
+  );
+
+  useEffect(() => {
+    if (!sendStatus || reportOpen) return;
+    const timer = window.setTimeout(() => setSendStatus(null), 4000);
+    return () => window.clearTimeout(timer);
+  }, [sendStatus, reportOpen]);
+
+  function openReportPreview() {
+    setReportAnchor(parseISO(todayISO()));
+    setReportRange("month");
+    setSendStatus(null);
+    setReportOpen(true);
+  }
+
+  function closeReportPreview() {
+    setReportOpen(false);
+    setSendingReport(false);
+  }
+
+  async function sendGoalsReport() {
+    if (sendingReport) return;
+    const token = telegramSettings.botToken.trim();
+    const chatId = telegramSettings.chatId.trim();
+    if (!token || !chatId) {
+      setTelegramOpen(true);
+      setSendStatus({ tone: "err", text: "កំណត់ Token និង Chat ID សិន" });
+      return;
+    }
+    setSendingReport(true);
+    setSendStatus(null);
+    try {
+      await sendTelegramMessage({
+        botToken: token,
+        chatId,
+        text: reportPreview,
+      });
+      setReportOpen(false);
+      setSendStatus({ tone: "ok", text: "ផ្ញើរបាយការណ៍បាន" });
+    } catch {
+      setSendStatus({ tone: "err", text: "ផ្ញើមិនបាន — ពិនិត្យ Telegram" });
+    } finally {
+      setSendingReport(false);
+    }
+  }
 
   function setGoalsNav(nextView: GoalsView) {
     const params = new URLSearchParams(searchParams.toString());
@@ -284,10 +363,34 @@ function GoalsContent() {
               បានបញ្ចប់
             </button>
           </div>
-          <button type="button" className="btn btn-primary" onClick={openCreate}>
-            <Plus size={16} /> បន្ថែមគោលដៅ
+          <button
+            type="button"
+            className="toolbar-send"
+            aria-label="ផ្ញើរបាយការណ៍ទៅ Telegram"
+            title="ផ្ញើរបាយការណ៍ទៅ Telegram"
+            onClick={openReportPreview}
+          >
+            <Send size={15} />
+            ផ្ញើ
+          </button>
+          <button
+            type="button"
+            className="toolbar-add"
+            aria-label="បន្ថែមគោលដៅ"
+            onClick={openCreate}
+          >
+            <Plus size={18} />
           </button>
         </div>
+        {sendStatus && !reportOpen ? (
+          <p
+            className={`finance-send-status is-${sendStatus.tone}`}
+            role="status"
+            aria-live="polite"
+          >
+            {sendStatus.text}
+          </p>
+        ) : null}
       </div>
 
       <section className="surface finance-hero">
@@ -743,6 +846,98 @@ function GoalsContent() {
           </div>
         </form>
       </Modal>
+
+      <Modal
+        open={reportOpen}
+        title="ផ្ញើរបាយការណ៍"
+        onClose={closeReportPreview}
+      >
+        <div className="event-form finance-report">
+          <div
+            className="tabs calendar-view-tabs finance-report-tabs"
+            role="tablist"
+            aria-label="រយៈពេលរបាយការណ៍"
+          >
+            {REPORT_RANGES.map((item) => (
+              <button
+                key={item.value}
+                type="button"
+                role="tab"
+                className="tab"
+                aria-selected={reportRange === item.value}
+                data-active={reportRange === item.value}
+                onClick={() => setReportRange(item.value)}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="calendar-month-head finance-report-nav">
+            <button
+              type="button"
+              className="btn btn-ghost btn-icon"
+              aria-label="មុន"
+              onClick={() =>
+                setReportAnchor(shiftReportAnchor(reportRange, reportAnchor, -1))
+              }
+            >
+              <ChevronLeft size={20} />
+            </button>
+            <h2 className="calendar-month-title finance-report-period">
+              {reportBounds.label}
+            </h2>
+            <button
+              type="button"
+              className="btn btn-ghost btn-icon"
+              aria-label="បន្ទាប់"
+              onClick={() =>
+                setReportAnchor(shiftReportAnchor(reportRange, reportAnchor, 1))
+              }
+            >
+              <ChevronRight size={20} />
+            </button>
+          </div>
+
+          <section className="event-card">
+            <pre className="finance-report-text">{reportPreview}</pre>
+          </section>
+
+          {sendStatus ? (
+            <p
+              className={`finance-send-status is-${sendStatus.tone}`}
+              role="status"
+              aria-live="polite"
+            >
+              {sendStatus.text}
+            </p>
+          ) : null}
+
+          <div className="form-actions event-form-actions">
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={closeReportPreview}
+            >
+              បោះបង់
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={sendingReport}
+              onClick={() => void sendGoalsReport()}
+            >
+              <Send size={15} />
+              {sendingReport ? "កំពុងផ្ញើ…" : "ផ្ញើ"}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <TelegramConfigModal
+        open={telegramOpen}
+        onClose={() => setTelegramOpen(false)}
+      />
     </div>
   );
 }

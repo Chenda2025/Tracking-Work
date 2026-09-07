@@ -11,8 +11,9 @@ export function LoginScreen() {
   const login = useTrackingStore((s) => s.login);
   const signUp = useTrackingStore((s) => s.signUp);
   const profile = useTrackingStore((s) => s.profile);
+  const hasAccounts = useTrackingStore((s) => Object.keys(s.accounts).length > 0);
   const [mode, setMode] = useState<AuthMode>(
-    profile?.username || profile?.password ? "login" : "signup"
+    profile?.username || profile?.password || hasAccounts ? "login" : "signup"
   );
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");

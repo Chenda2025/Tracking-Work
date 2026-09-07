@@ -8,6 +8,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Plus,
+  Send,
   Trash2,
 } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
@@ -15,7 +16,9 @@ import { HydrationGate } from "@/components/HydrationGate";
 import { CategoryPicker } from "@/components/CategoryPicker";
 import { DatePickerField } from "@/components/DatePicker";
 import { Modal } from "@/components/Modal";
+import { TelegramConfigModal } from "@/components/TelegramConfigModal";
 import { useTrackingStore } from "@/lib/store";
+import { buildFinanceReport, sendTelegramMessage } from "@/lib/telegramDaily";
 import type {
   FinanceCategory,
   MoneyCurrency,
@@ -24,19 +27,24 @@ import type {
 } from "@/lib/types";
 import {
   WEEKDAY_HEADERS_KM,
+  REPORT_RANGES,
   buildMonthGrid,
+  filterByDateRange,
   filterByMonth,
   financeMarksForMonth,
   formatMoneyPair,
   formatMonth,
   isSavingsTx,
   labelTransactionType,
+  reportPeriod,
   resolveFinanceCategoryLabel,
   shiftMonth,
+  shiftReportAnchor,
   sumExpense,
   sumIncome,
   todayISO,
   toUsd,
+  type ReportRange,
 } from "@/lib/utils";
 
 type FinanceView = "month" | "list" | "income" | "expense";
@@ -90,9 +98,20 @@ function FinanceContent() {
   const addTransaction = useTrackingStore((s) => s.addTransaction);
   const updateTransaction = useTrackingStore((s) => s.updateTransaction);
   const deleteTransaction = useTrackingStore((s) => s.deleteTransaction);
+  const telegramSettings = useTrackingStore((s) => s.telegramSettings);
+  const ownerName = useTrackingStore((s) => s.profile?.name ?? "");
 
   const [selectedISO, setSelectedISO] = useState(todayISO);
   const [formOpen, setFormOpen] = useState(false);
+  const [telegramOpen, setTelegramOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportRange, setReportRange] = useState<ReportRange>("month");
+  const [reportAnchor, setReportAnchor] = useState(month);
+  const [sendingReport, setSendingReport] = useState(false);
+  const [sendStatus, setSendStatus] = useState<{
+    tone: "ok" | "err";
+    text: string;
+  } | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [type, setType] = useState<TransactionType>("expense");
   const [amount, setAmount] = useState("");
@@ -200,6 +219,75 @@ function FinanceContent() {
   );
   const categoryLabel = (id: string) =>
     resolveFinanceCategoryLabel(id, categoryCatalog);
+
+  const reportBounds = useMemo(
+    () => reportPeriod(reportRange, reportAnchor),
+    [reportRange, reportAnchor]
+  );
+  const reportTx = useMemo(
+    () => filterByDateRange(transactions, reportBounds.start, reportBounds.end),
+    [transactions, reportBounds]
+  );
+  const reportPreview = useMemo(
+    () =>
+      buildFinanceReport({
+        periodLabel: reportBounds.label,
+        transactions: reportTx,
+        view,
+        ownerName,
+        categoryLabel: (id) => resolveFinanceCategoryLabel(id, categoryCatalog),
+      }),
+    [reportBounds.label, reportTx, view, categoryCatalog, ownerName]
+  );
+
+  useEffect(() => {
+    if (!sendStatus || reportOpen) return;
+    const timer = window.setTimeout(() => setSendStatus(null), 4000);
+    return () => window.clearTimeout(timer);
+  }, [sendStatus, reportOpen]);
+
+  function openReportPreview() {
+    try {
+      const selected = parseISO(selectedISO);
+      setReportAnchor(isSameMonth(selected, month) ? selected : month);
+    } catch {
+      setReportAnchor(month);
+    }
+    setReportRange("month");
+    setSendStatus(null);
+    setReportOpen(true);
+  }
+
+  function closeReportPreview() {
+    setReportOpen(false);
+    setSendingReport(false);
+  }
+
+  async function sendFinanceReport() {
+    if (sendingReport) return;
+    const token = telegramSettings.botToken.trim();
+    const chatId = telegramSettings.chatId.trim();
+    if (!token || !chatId) {
+      setTelegramOpen(true);
+      setSendStatus({ tone: "err", text: "កំណត់ Token និង Chat ID សិន" });
+      return;
+    }
+    setSendingReport(true);
+    setSendStatus(null);
+    try {
+      await sendTelegramMessage({
+        botToken: token,
+        chatId,
+        text: reportPreview,
+      });
+      setReportOpen(false);
+      setSendStatus({ tone: "ok", text: "ផ្ញើរបាយការណ៍បាន" });
+    } catch {
+      setSendStatus({ tone: "err", text: "ផ្ញើមិនបាន — ពិនិត្យ Telegram" });
+    } finally {
+      setSendingReport(false);
+    }
+  }
 
   function setFinanceNav(next: { view?: FinanceView; month?: Date }) {
     const params = new URLSearchParams(searchParams.toString());
@@ -349,12 +437,32 @@ function FinanceContent() {
           </div>
           <button
             type="button"
-            className="btn btn-primary"
+            className="toolbar-send"
+            aria-label="ផ្ញើរបាយការណ៍ទៅ Telegram"
+            title="ផ្ញើរបាយការណ៍ទៅ Telegram"
+            onClick={openReportPreview}
+          >
+            <Send size={15} />
+            ផ្ញើ
+          </button>
+          <button
+            type="button"
+            className="toolbar-add"
+            aria-label="បន្ថែម"
             onClick={() => openCreate()}
           >
-            <Plus size={16} /> បន្ថែម
+            <Plus size={18} />
           </button>
         </div>
+        {sendStatus && !reportOpen ? (
+          <p
+            className={`finance-send-status is-${sendStatus.tone}`}
+            role="status"
+            aria-live="polite"
+          >
+            {sendStatus.text}
+          </p>
+        ) : null}
       </div>
 
       <section className="surface finance-hero">
@@ -709,6 +817,98 @@ function FinanceContent() {
           </div>
         </form>
       </Modal>
+
+      <Modal
+        open={reportOpen}
+        title="ផ្ញើរបាយការណ៍"
+        onClose={closeReportPreview}
+      >
+        <div className="event-form finance-report">
+          <div
+            className="tabs calendar-view-tabs finance-report-tabs"
+            role="tablist"
+            aria-label="រយៈពេលរបាយការណ៍"
+          >
+            {REPORT_RANGES.map((item) => (
+              <button
+                key={item.value}
+                type="button"
+                role="tab"
+                className="tab"
+                aria-selected={reportRange === item.value}
+                data-active={reportRange === item.value}
+                onClick={() => setReportRange(item.value)}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="calendar-month-head finance-report-nav">
+            <button
+              type="button"
+              className="btn btn-ghost btn-icon"
+              aria-label="មុន"
+              onClick={() =>
+                setReportAnchor(shiftReportAnchor(reportRange, reportAnchor, -1))
+              }
+            >
+              <ChevronLeft size={20} />
+            </button>
+            <h2 className="calendar-month-title finance-report-period">
+              {reportBounds.label}
+            </h2>
+            <button
+              type="button"
+              className="btn btn-ghost btn-icon"
+              aria-label="បន្ទាប់"
+              onClick={() =>
+                setReportAnchor(shiftReportAnchor(reportRange, reportAnchor, 1))
+              }
+            >
+              <ChevronRight size={20} />
+            </button>
+          </div>
+
+          <section className="event-card">
+            <pre className="finance-report-text">{reportPreview}</pre>
+          </section>
+
+          {sendStatus ? (
+            <p
+              className={`finance-send-status is-${sendStatus.tone}`}
+              role="status"
+              aria-live="polite"
+            >
+              {sendStatus.text}
+            </p>
+          ) : null}
+
+          <div className="form-actions event-form-actions">
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={closeReportPreview}
+            >
+              បោះបង់
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={sendingReport}
+              onClick={() => void sendFinanceReport()}
+            >
+              <Send size={15} />
+              {sendingReport ? "កំពុងផ្ញើ…" : "ផ្ញើ"}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <TelegramConfigModal
+        open={telegramOpen}
+        onClose={() => setTelegramOpen(false)}
+      />
     </div>
   );
 }

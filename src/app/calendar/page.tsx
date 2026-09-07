@@ -20,7 +20,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Folder,
-  FolderPlus,
   MoreVertical,
   Pencil,
   Plus,
@@ -37,6 +36,7 @@ import { TelegramConfigModal } from "@/components/TelegramConfigModal";
 import { useTrackingStore } from "@/lib/store";
 import type {
   ActivityRepeat,
+  ActivityFolder,
   CalendarEvent,
   EventAlert,
   EventEndRepeat,
@@ -58,8 +58,6 @@ import {
   folderColorMeta,
   formatClock,
   formatShortDate,
-  getChildFolders,
-  getFolderPath,
   joinClock,
   labelActivityRepeat,
   labelEventAlert,
@@ -125,6 +123,7 @@ function CalendarContent() {
   const addReminder = useTrackingStore((s) => s.addReminder);
   const toggleReminder = useTrackingStore((s) => s.toggleReminder);
   const addActivityFolder = useTrackingStore((s) => s.addActivityFolder);
+  const updateActivityFolder = useTrackingStore((s) => s.updateActivityFolder);
   const deleteActivityFolder = useTrackingStore((s) => s.deleteActivityFolder);
 
   const [month, setMonth] = useState(() => {
@@ -139,6 +138,7 @@ function CalendarContent() {
   const [folderColor, setFolderColor] = useState<FolderColor>("teal");
   const [folderPriority, setFolderPriority] = useState<FolderPriority>("medium");
   const [folderError, setFolderError] = useState("");
+  const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [deleteFolderId, setDeleteFolderId] = useState<string | null>(null);
   const [deleteConfirmCode, setDeleteConfirmCode] = useState("");
   const [deleteConfirmInput, setDeleteConfirmInput] = useState("");
@@ -236,44 +236,43 @@ function CalendarContent() {
     return map;
   }, [folders]);
 
-  const sortedFolders = useMemo(() => {
-    return [...folders].sort((a, b) => {
-      const aRoot = a.parentId ? 1 : 0;
-      const bRoot = b.parentId ? 1 : 0;
-      if (aRoot !== bRoot) return aRoot - bRoot;
-      const aLabel = a.parentId
-        ? `${folderNameById[a.parentId] ?? ""} / ${a.name}`
-        : a.name;
-      const bLabel = b.parentId
-        ? `${folderNameById[b.parentId] ?? ""} / ${b.name}`
-        : b.name;
-      return aLabel.localeCompare(bLabel, "km");
-    });
-  }, [folders, folderNameById]);
+  const rootFolders = useMemo(
+    () =>
+      folders
+        .filter((folder) => !folder.parentId)
+        .sort((a, b) => a.name.localeCompare(b.name, "km")),
+    [folders]
+  );
 
   const currentFolder = useMemo(
     () => folders.find((f) => f.id === browseFolderId) ?? null,
     [folders, browseFolderId]
   );
-  const folderPath = useMemo(
-    () => (browseFolderId ? getFolderPath(folders, browseFolderId) : []),
-    [folders, browseFolderId]
-  );
-  const childFolders = useMemo(
-    () => getChildFolders(folders, browseFolderId),
-    [folders, browseFolderId]
-  );
-  const isSubfolder = Boolean(currentFolder?.parentId);
+  const folderScopeIds = useMemo(() => {
+    if (!browseFolderId) return new Set<string>();
+    const ids = new Set<string>([browseFolderId]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const folder of folders) {
+        if (folder.parentId && ids.has(folder.parentId) && !ids.has(folder.id)) {
+          ids.add(folder.id);
+          grew = true;
+        }
+      }
+    }
+    return ids;
+  }, [folders, browseFolderId]);
   const folderEvents = useMemo(() => {
     if (!browseFolderId) return [];
     return activeEvents
-      .filter((e) => e.folderId === browseFolderId)
+      .filter((e) => e.folderId && folderScopeIds.has(e.folderId))
       .sort((a, b) => {
         const byDate = b.date.localeCompare(a.date);
         if (byDate) return byDate;
         return (a.startTime || "").localeCompare(b.startTime || "");
       });
-  }, [activeEvents, browseFolderId]);
+  }, [activeEvents, browseFolderId, folderScopeIds]);
 
   const upcoming = useMemo(() => {
     const days: {
@@ -519,7 +518,14 @@ function CalendarContent() {
   }
 
 
+  function closeFolderModal() {
+    setFolderOpen(false);
+    setFolderError("");
+    setEditingFolderId(null);
+  }
+
   function openFolderModal() {
+    setEditingFolderId(null);
     setFolderName("");
     setFolderColor("teal");
     setFolderPriority("medium");
@@ -527,11 +533,33 @@ function CalendarContent() {
     setFolderOpen(true);
   }
 
+  function openEditFolder(folder: ActivityFolder) {
+    setEditingFolderId(folder.id);
+    setFolderName(folder.name);
+    setFolderColor(folder.color ?? "teal");
+    setFolderPriority(folder.priority ?? "medium");
+    setFolderError("");
+    setFolderOpen(true);
+  }
+
   function onCreateFolder(e: FormEvent) {
     e.preventDefault();
     setFolderError("");
-    const parentId = currentFolder?.id ?? null;
-    const id = addActivityFolder(folderName, parentId, {
+    if (editingFolderId) {
+      const ok = updateActivityFolder(editingFolderId, folderName, {
+        color: folderColor,
+        priority: folderPriority,
+      });
+      if (!ok) {
+        setFolderError(
+          "មិនអាចបង្កើតបាន — ឈ្មោះទទេ ឬមានឈ្មោះដូចគ្នាក្នុងថតនេះរួចហើយ។"
+        );
+        return;
+      }
+      closeFolderModal();
+      return;
+    }
+    const id = addActivityFolder(folderName, null, {
       color: folderColor,
       priority: folderPriority,
     });
@@ -541,7 +569,7 @@ function CalendarContent() {
       );
       return;
     }
-    setFolderOpen(false);
+    closeFolderModal();
     setFolderName("");
   }
 
@@ -578,8 +606,7 @@ function CalendarContent() {
     const id = deleteFolderId;
     deleteActivityFolder(id);
     if (browseFolderId === id) {
-      const parent = folders.find((f) => f.id === id)?.parentId ?? null;
-      setCalendarNav({ folder: parent });
+      setCalendarNav({ folder: null });
     }
     closeDeleteFolder();
   }
@@ -634,14 +661,7 @@ function CalendarContent() {
               ធ្វើរួចរាល់
             </button>
           </div>
-          {view === "folders" ? (
-            !isSubfolder ? (
-              <button type="button" className="btn btn-primary" onClick={openFolderModal}>
-                <FolderPlus size={16} />{" "}
-                {currentFolder ? "បន្ថែមថតរង" : "បន្ថែមថត"}
-              </button>
-            ) : null
-          ) : view === "done" ? (
+          {view === "folders" ? null : view === "done" ? (
             <div className="calendar-done-actions">
               <button
                 type="button"
@@ -664,10 +684,11 @@ function CalendarContent() {
           ) : (
             <button
               type="button"
-              className="btn btn-primary"
+              className="toolbar-add"
+              aria-label="បន្ថែម"
               onClick={() => openCreateForDay(selectedISO)}
             >
-              <Plus size={16} /> បន្ថែម
+              <Plus size={18} />
             </button>
           )}
         </div>
@@ -914,55 +935,97 @@ function CalendarContent() {
       ) : null}
 
       {view === "folders" ? (
-        <>
-          {folderPath.length > 0 ? (
-            <nav className="calendar-folder-crumb" aria-label="ផ្លូវថត">
+        browseFolderId ? (
+          <section className="surface calendar-folder-detail">
+            <header className="calendar-folder-hero">
               <button
                 type="button"
-                className="calendar-crumb-link"
+                className="calendar-folder-back"
+                aria-label="ថតទាំងអស់"
                 onClick={() => setCalendarNav({ folder: null })}
               >
-                ថតទាំងអស់
+                <ChevronLeft size={20} />
               </button>
-              {folderPath.map((folder) => {
-                const active = folder.id === browseFolderId;
-                return (
-                  <span key={folder.id} className="inline-flex items-center gap-1">
-                    <ChevronRight size={14} className="text-ink-soft" />
-                    <button
-                      type="button"
-                      className={`calendar-crumb-link ${active ? "is-active" : ""}`}
-                      onClick={() => setCalendarNav({ folder: folder.id })}
-                    >
-                      {folder.name}
-                    </button>
-                  </span>
-                );
-              })}
-            </nav>
-          ) : null}
-
-          <section className="surface calendar-day-panel">
-            {childFolders.length === 0 ? (
-              <EmptyState
-                title={browseFolderId ? "មិនទាន់មានថតរង" : "មិនទាន់មានថត"}
-                description={
-                  browseFolderId
-                    ? "ចុច បន្ថែមថតរង ដើម្បីបង្កើតថតកូន។"
-                    : "ចុច បន្ថែមថត ដើម្បីបង្កើតថតថ្មី។"
-                }
-                action={
-                  !isSubfolder ? (
-                    <button type="button" className="btn btn-primary" onClick={openFolderModal}>
-                      <FolderPlus size={16} />{" "}
-                      {browseFolderId ? "បន្ថែមថតរង" : "បន្ថែមថត"}
-                    </button>
-                  ) : undefined
-                }
-              />
+              <div className="calendar-folder-hero-copy">
+                <span
+                  className="calendar-folder-icon"
+                  style={{
+                    backgroundColor: folderColorMeta(currentFolder?.color).swatch,
+                  }}
+                >
+                  <Folder size={16} />
+                </span>
+                <h3 className="calendar-folder-hero-title">
+                  {currentFolder?.name ?? "ថត"}
+                </h3>
+              </div>
+              <button
+                type="button"
+                className="calendar-folder-add"
+                aria-label="បន្ថែមព្រឹត្តិការណ៍"
+                onClick={() => openEventForDay(selectedISO)}
+              >
+                <Plus size={18} />
+              </button>
+            </header>
+            {folderEvents.length === 0 ? (
+              <button
+                type="button"
+                className="calendar-folder-empty"
+                onClick={() => openEventForDay(selectedISO)}
+              >
+                <span className="calendar-folder-empty-icon">
+                  <Plus size={22} />
+                </span>
+                <strong>មិនទាន់មានព្រឹត្តិការណ៍ក្នុងថតនេះ</strong>
+                <span>បន្ថែមព្រឹត្តិការណ៍</span>
+              </button>
+            ) : (
+              <ul className="calendar-item-list">
+                {folderEvents.map((item) => (
+                  <EventAgendaItem
+                    key={item.id}
+                    item={item}
+                    showDate
+                    compact
+                    onToggleComplete={() =>
+                      setEventCompleted(item.id, !item.completed)
+                    }
+                    onEdit={() => openEditEvent(item)}
+                    onRepeat={() => openRepeatEvent(item)}
+                    onDelete={() => deleteEvent(item.id)}
+                  />
+                ))}
+              </ul>
+            )}
+          </section>
+        ) : (
+          <section className="surface calendar-folder-detail">
+            <header className="calendar-folder-hero is-list">
+              <button
+                type="button"
+                className="calendar-folder-add"
+                aria-label="បន្ថែមថត"
+                onClick={openFolderModal}
+              >
+                <Plus size={18} />
+              </button>
+            </header>
+            {rootFolders.length === 0 ? (
+              <button
+                type="button"
+                className="calendar-folder-empty"
+                onClick={openFolderModal}
+              >
+                <span className="calendar-folder-empty-icon">
+                  <Plus size={22} />
+                </span>
+                <strong>មិនទាន់មានថត</strong>
+                <span>បន្ថែមថត</span>
+              </button>
             ) : (
               <ul className="calendar-folder-grid">
-                {childFolders.map((folder) => {
+                {rootFolders.map((folder) => {
                   const color = folderColorMeta(folder.color);
                   const count = activeEvents.filter((e) => e.folderId === folder.id).length;
                   return (
@@ -978,74 +1041,45 @@ function CalendarContent() {
                         >
                           <Folder size={16} />
                         </span>
-                        <span className="min-w-0 flex-1 text-left">
-                          <span className="calendar-item-title block truncate">
-                            {folder.name}
-                          </span>
-                          <span className="calendar-item-meta">
-                            អាទិភាព៖ {labelFolderPriority(folder.priority)}
-                            {count ? ` · ${count} ព្រឹត្តិការណ៍` : ""}
+                        <span className="calendar-folder-copy">
+                          <span className="calendar-folder-name">{folder.name}</span>
+                          <span className="calendar-folder-meta">
+                            <span
+                              className={`calendar-folder-priority is-${folder.priority ?? "medium"}`}
+                            >
+                              {labelFolderPriority(folder.priority)}
+                            </span>
+                            {count ? (
+                              <span className="calendar-folder-count">{count}</span>
+                            ) : null}
                           </span>
                         </span>
                       </button>
-                      <button
-                        type="button"
-                        className="btn btn-danger btn-icon"
-                        aria-label="លុបថត"
-                        onClick={() => openDeleteFolder(folder.id)}
-                      >
-                        <Trash2 size={15} />
-                      </button>
+                      <div className="calendar-folder-actions">
+                        <button
+                          type="button"
+                          className="calendar-folder-action is-edit"
+                          aria-label="កែថត"
+                          onClick={() => openEditFolder(folder)}
+                        >
+                          <Pencil size={15} />
+                        </button>
+                        <button
+                          type="button"
+                          className="calendar-folder-action is-delete"
+                          aria-label="លុបថត"
+                          onClick={() => openDeleteFolder(folder.id)}
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
                     </li>
                   );
                 })}
               </ul>
             )}
           </section>
-
-          {browseFolderId ? (
-            <section className="surface calendar-day-panel">
-              <div className="calendar-day-head">
-                <div className="min-w-0">
-                  <p className="calendar-kicker">ព្រឹត្តិការណ៍ក្នុងថត</p>
-                  <h3 className="calendar-day-title">
-                    {currentFolder?.name ?? "ថត"}
-                  </h3>
-                </div>
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => openCreateForDay(selectedISO)}
-                >
-                  បន្ថែមព្រឹត្តិការណ៍
-                </button>
-              </div>
-              {folderEvents.length === 0 ? (
-                <EmptyState
-                  title="មិនទាន់មានព្រឹត្តិការណ៍ក្នុងថតនេះ"
-                  description="បង្កើតព្រឹត្តិការណ៍ រួចជ្រើសថតនេះ។"
-                />
-              ) : (
-                <ul className="calendar-item-list">
-                  {folderEvents.map((item) => (
-                    <EventAgendaItem
-                      key={item.id}
-                      item={item}
-                      showDate
-                      compact
-                      onToggleComplete={() =>
-                        setEventCompleted(item.id, !item.completed)
-                      }
-                      onEdit={() => openEditEvent(item)}
-                      onRepeat={() => openRepeatEvent(item)}
-                      onDelete={() => deleteEvent(item.id)}
-                    />
-                  ))}
-                </ul>
-              )}
-            </section>
-          ) : null}
-        </>
+        )
       ) : null}
 
       {view === "done" ? (
@@ -1170,18 +1204,10 @@ function CalendarContent() {
 
       <Modal
         open={folderOpen}
-        title={currentFolder ? "បង្កើតថតរង" : "បង្កើតថតថ្មី"}
-        onClose={() => {
-          setFolderOpen(false);
-          setFolderError("");
-        }}
+        title={editingFolderId ? "កែថត" : "បង្កើតថតថ្មី"}
+        onClose={closeFolderModal}
       >
         <form className="space-y-3.5" onSubmit={onCreateFolder}>
-          {currentFolder ? (
-            <p className="rounded-xl bg-brand-soft px-3 py-2 text-sm text-brand-deep">
-              ថតមេ៖ {currentFolder.name}
-            </p>
-          ) : null}
           <label className="block space-y-1.5">
             <span className="form-label">ឈ្មោះថត</span>
             <input
@@ -1241,15 +1267,12 @@ function CalendarContent() {
             <button
               type="button"
               className="btn btn-ghost"
-              onClick={() => {
-                setFolderOpen(false);
-                setFolderError("");
-              }}
+              onClick={closeFolderModal}
             >
               បោះបង់
             </button>
             <button type="submit" className="btn btn-primary">
-              បង្កើតថត
+              {editingFolderId ? "រក្សាទុក" : "បង្កើតថត"}
             </button>
           </div>
         </form>
@@ -1317,10 +1340,10 @@ function CalendarContent() {
         onClose={() => setChooserOpen(false)}
         size="sm"
       >
-        <div className="calendar-chooser">
+        <div className="calendar-chooser is-tiles">
           <button type="button" className="calendar-chooser-item" onClick={() => openCreate("event")}>
             <span className="chooser-icon event">
-              <CalendarDays size={20} />
+              <CalendarDays size={22} />
             </span>
             <span>
               <strong className="font-display">ព្រឹត្តិការណ៍</strong>
@@ -1333,7 +1356,7 @@ function CalendarContent() {
             onClick={() => openCreate("reminder")}
           >
             <span className="chooser-icon reminder">
-              <Bell size={20} />
+              <Bell size={22} />
             </span>
             <span>
               <strong className="font-display">ការរំលឹក</strong>
@@ -1377,13 +1400,17 @@ function CalendarContent() {
                 onChange={(e) => setEventFolderId(e.target.value)}
               >
                 <option value="">គ្មានថត</option>
-                {sortedFolders.map((f) => (
+                {rootFolders.map((f) => (
                   <option key={f.id} value={f.id}>
-                    {f.parentId
-                      ? `${folderNameById[f.parentId] ?? ""} / ${f.name}`
-                      : f.name}
+                    {f.name}
                   </option>
                 ))}
+                {eventFolderId &&
+                !rootFolders.some((f) => f.id === eventFolderId) ? (
+                  <option value={eventFolderId}>
+                    {folderNameById[eventFolderId] ?? eventFolderId}
+                  </option>
+                ) : null}
               </select>
             </label>
           </section>
@@ -1559,10 +1586,10 @@ function CalendarContent() {
               }}
             />
             <RepeatField value={reminderRepeat} onChange={setReminderRepeat} />
-            <label className="event-row">
-              <span className="event-row-label">ជូនដំណឹងមុន</span>
+            <label className="event-when">
+              <span className="event-when-label">ជូនដំណឹងមុន</span>
               <select
-                className="event-row-input event-row-select"
+                className="event-when-select"
                 value={reminderAlert}
                 onChange={(e) => setReminderAlert(e.target.value as EventAlert)}
               >
@@ -1573,18 +1600,20 @@ function CalendarContent() {
                 ))}
               </select>
             </label>
-            <label className="event-row event-row-switch">
-              <span className="event-row-label">មានម៉ោង</span>
-              <input
-                type="checkbox"
-                className="event-toggle"
-                checked={reminderHasTime}
-                onChange={(e) => setReminderHasTime(e.target.checked)}
-              />
-            </label>
-            {reminderHasTime ? (
-              <TimeField label="ម៉ោង" value={reminderTime} onChange={setReminderTime} />
-            ) : null}
+            <div className="event-when">
+              <label className="event-when-switch">
+                <span className="event-when-label">មានម៉ោង</span>
+                <input
+                  type="checkbox"
+                  className="event-toggle"
+                  checked={reminderHasTime}
+                  onChange={(e) => setReminderHasTime(e.target.checked)}
+                />
+              </label>
+              {reminderHasTime ? (
+                <TimeField value={reminderTime} onChange={setReminderTime} />
+              ) : null}
+            </div>
           </section>
 
           <section className="event-card">
@@ -1945,9 +1974,9 @@ function DateTimeField({
   }
 
   return (
-    <div className="event-row event-row-time">
-      <span className="event-row-label">{label}</span>
-      <div className="event-time-controls">
+    <div className="event-when">
+      <span className="event-when-label">{label}</span>
+      <div className="event-when-picks">
         <DatePickerField
           variant="inline"
           value={date}
@@ -2011,11 +2040,9 @@ function DateTimeField({
 }
 
 function TimeField({
-  label,
   value,
   onChange,
 }: {
-  label: string;
   value: string;
   onChange: (next: string) => void;
 }) {
@@ -2034,14 +2061,13 @@ function TimeField({
   }
 
   return (
-    <div className="event-row event-row-clock">
-      <span className="event-row-label">{label}</span>
+    <div className="event-when-picks">
       <div className="event-time-line">
         <select
           className="event-time-select"
           value={clock.hour12}
           onChange={(e) => setPart({ hour12: Number(e.target.value) })}
-          aria-label={`${label} ម៉ោង`}
+          aria-label="ម៉ោង"
         >
           {hours.map((h) => (
             <option key={h} value={h}>
@@ -2049,12 +2075,14 @@ function TimeField({
             </option>
           ))}
         </select>
-        <span className="calendar-time-colon">:</span>
+        <span className="calendar-time-colon" aria-hidden>
+          :
+        </span>
         <select
           className="event-time-select"
           value={clock.minute}
           onChange={(e) => setPart({ minute: Number(e.target.value) })}
-          aria-label={`${label} នាទី`}
+          aria-label="នាទី"
         >
           {minutes.map((m) => (
             <option key={m} value={m}>
@@ -2094,36 +2122,42 @@ function DayField({
 }) {
   const selected = weekdayFromISO(date);
   return (
-    <div className="event-row event-row-time">
-      <span className="event-row-label">ថ្ងៃ</span>
-      <div className="event-time-controls">
-        <div className="day-chips event-day-chips" role="group" aria-label="ថ្ងៃ">
-          {ACTIVITY_REPEATS.map((r) => {
-            const checked = selected === r.value;
-            return (
-              <button
-                key={r.value}
-                type="button"
-                className="day-chip"
-                data-active={checked}
-                aria-pressed={checked}
-                title={r.label}
-                aria-label={r.label}
-                onClick={() =>
-                  onChange(
-                    weekdayFromISO(date) === r.value
-                      ? date
-                      : nextISOForWeekday(r.value, date),
-                    r.value
-                  )
-                }
-              >
-                {r.short}
-              </button>
-            );
-          })}
-        </div>
-        <span className="event-day-date">{formatShortDate(date)}</span>
+    <div className="event-when">
+      <span className="event-when-label">ថ្ងៃ</span>
+      <div className="event-when-picks">
+        <DatePickerField
+          variant="inline"
+          value={date}
+          onChange={(next) => onChange(next, weekdayFromISO(next))}
+          ariaLabel="ថ្ងៃ"
+          required
+        />
+      </div>
+      <div className="day-chips" role="group" aria-label="ថ្ងៃ">
+        {ACTIVITY_REPEATS.map((r) => {
+          const checked = selected === r.value;
+          return (
+            <button
+              key={r.value}
+              type="button"
+              className="day-chip"
+              data-active={checked}
+              aria-pressed={checked}
+              title={r.label}
+              aria-label={r.label}
+              onClick={() =>
+                onChange(
+                  weekdayFromISO(date) === r.value
+                    ? date
+                    : nextISOForWeekday(r.value, date),
+                  r.value
+                )
+              }
+            >
+              {r.short}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -2137,9 +2171,9 @@ function RepeatField({
   onChange: (next: ActivityRepeat[]) => void;
 }) {
   return (
-    <div className="event-repeat-block">
-      <span className="event-row-label">ធ្វើម្តងទៀត</span>
-      <div className="day-chips event-day-chips" role="group" aria-label="ថ្ងៃធ្វើម្តងទៀត">
+    <div className="event-when">
+      <span className="event-when-label">ធ្វើម្តងទៀត</span>
+      <div className="day-chips" role="group" aria-label="ថ្ងៃធ្វើម្តងទៀត">
         {ACTIVITY_REPEATS.map((r) => {
           const checked = value.includes(r.value);
           return (

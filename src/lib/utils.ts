@@ -1,4 +1,4 @@
-import { format, isToday, parseISO, startOfMonth, endOfMonth, isWithinInterval, eachDayOfInterval, startOfWeek, endOfWeek, isSameMonth, isSameDay, addMonths, subMonths } from "date-fns";
+import { format, isToday, parseISO, startOfMonth, endOfMonth, startOfYear, endOfYear, isWithinInterval, eachDayOfInterval, startOfWeek, endOfWeek, isSameMonth, isSameDay, addMonths, addWeeks, addYears, subMonths } from "date-fns";
 import { km } from "date-fns/locale";
 import { toKhmerLunarDate } from "khmer-chhankitek-calendar";
 import type {
@@ -520,6 +520,14 @@ export function filterByMonth<T extends { date: string }>(
 ): T[] {
   const start = startOfMonth(month);
   const end = endOfMonth(month);
+  return filterByDateRange(items, start, end);
+}
+
+export function filterByDateRange<T extends { date: string }>(
+  items: T[],
+  start: Date,
+  end: Date
+): T[] {
   return items.filter((item) => {
     try {
       return isWithinInterval(parseISO(item.date), { start, end });
@@ -527,6 +535,48 @@ export function filterByMonth<T extends { date: string }>(
       return false;
     }
   });
+}
+
+export type ReportRange = "week" | "month" | "year";
+
+export const REPORT_RANGES: { value: ReportRange; label: string }[] = [
+  { value: "week", label: "សប្តាហ៍" },
+  { value: "month", label: "ខែ" },
+  { value: "year", label: "ឆ្នាំ" },
+];
+
+export function reportPeriod(range: ReportRange, anchor: Date) {
+  if (range === "week") {
+    const start = startOfWeek(anchor, { weekStartsOn: 0 });
+    const end = endOfWeek(anchor, { weekStartsOn: 0 });
+    return {
+      start,
+      end,
+      label: `${format(start, "d MMMM", { locale: km })} – ${format(end, "d MMMM yyyy", { locale: km })}`,
+    };
+  }
+  if (range === "year") {
+    return {
+      start: startOfYear(anchor),
+      end: endOfYear(anchor),
+      label: `ឆ្នាំ ${format(anchor, "yyyy")}`,
+    };
+  }
+  return {
+    start: startOfMonth(anchor),
+    end: endOfMonth(anchor),
+    label: formatMonth(anchor),
+  };
+}
+
+export function shiftReportAnchor(
+  range: ReportRange,
+  anchor: Date,
+  delta: number
+) {
+  if (range === "week") return addWeeks(anchor, delta);
+  if (range === "year") return addYears(anchor, delta);
+  return addMonths(anchor, delta);
 }
 
 export function filterThisMonth<T extends { date: string }>(items: T[]): T[] {

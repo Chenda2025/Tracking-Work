@@ -15,6 +15,7 @@ import {
   shareFileToTelegram,
 } from "@/lib/a4Export";
 import { useTrackingStore } from "@/lib/store";
+import { reportOwnerName } from "@/lib/telegramDaily";
 import type { CalendarEvent } from "@/lib/types";
 import {
   formatClock,
@@ -103,7 +104,8 @@ function buildExportPages(groups: MonthGroup[]): ExportPage[] {
 
 function telegramText(
   groups: MonthGroup[],
-  folderNameById: Record<string, string>
+  folderNameById: Record<string, string>,
+  ownerName?: string
 ): string {
   const blocks = groups.map((group) => {
     const lines = group.items.map((item, index) => {
@@ -124,7 +126,7 @@ function telegramText(
       ...lines,
     ].join("\n");
   });
-  let text = ["ថេរ — ធ្វើរួចរាល់", "", ...blocks].join("\n");
+  let text = [reportOwnerName(ownerName), "ធ្វើរួចរាល់", "────────", "", ...blocks].join("\n");
   if (text.length > 3500) text = `${text.slice(0, 3480)}\n…`;
   return text;
 }
@@ -144,6 +146,7 @@ export function DoneExportModal({
   const [busy, setBusy] = useState<"pdf" | "image" | null>(null);
   const [error, setError] = useState("");
   const telegramSettings = useTrackingStore((s) => s.telegramSettings);
+  const ownerName = useTrackingStore((s) => s.profile?.name ?? "");
 
   const monthGroups = useMemo(() => groupByMonth(items), [items]);
   const pages = useMemo(() => buildExportPages(monthGroups), [monthGroups]);
@@ -196,7 +199,7 @@ export function DoneExportModal({
     setBusy(kind);
     setError("");
     try {
-      const text = telegramText(monthGroups, folderNameById);
+      const text = telegramText(monthGroups, folderNameById, ownerName);
       if (kind === "pdf") {
         const shots = await capturePages("jpeg");
         if (!shots.length) throw new Error("empty");

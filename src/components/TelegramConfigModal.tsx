@@ -171,6 +171,7 @@ export function TelegramConfigModal({
           events: state.events,
           reminders: state.reminders,
           activities: state.activities,
+          ownerName: state.profile?.name,
         }),
       });
       setMessage({ tone: "ok", text: "ផ្ញើសាកល្បងបាន" });

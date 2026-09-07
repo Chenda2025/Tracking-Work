@@ -38,6 +38,7 @@ async function sendDigestIfDue(slot: "morning" | "evening") {
       reminders: state.reminders,
       activities: state.activities,
       period: slot,
+      ownerName: state.profile?.name,
     }),
   });
   useTrackingStore.getState().setTelegramSettings(
@@ -62,7 +63,7 @@ async function sendDueEventReports() {
     await sendTelegramMessage({
       botToken: token,
       chatId,
-      text: buildEventReport(item),
+      text: buildEventReport(item, state.profile?.name),
     });
     sentIds = [...sentIds, item.id];
     useTrackingStore.getState().setTelegramSettings({

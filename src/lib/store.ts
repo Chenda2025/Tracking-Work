@@ -58,6 +58,259 @@ function catalogKey(
   return "expenseCategories";
 }
 
+type AccountSnapshot = {
+  profile: UserProfile;
+  activities: Activity[];
+  transactions: Transaction[];
+  goals: FamilyGoal[];
+  activityFolders: ActivityFolder[];
+  events: CalendarEvent[];
+  reminders: Reminder[];
+  incomeCategories: FinanceCategoryOption[];
+  expenseCategories: FinanceCategoryOption[];
+  saveCategories: FinanceCategoryOption[];
+  telegramSettings: TelegramSettings;
+};
+
+type WorkspaceData = Omit<AccountSnapshot, "profile">;
+
+function accountKey(value?: string | null): string {
+  return (value ?? "").trim().toLowerCase();
+}
+
+function emptyTelegram(): TelegramSettings {
+  return {
+    botToken: "",
+    chatId: "",
+    enabled: false,
+    sendTime: "07:00",
+    eveningTime: "18:00",
+    lastAutoSentDate: "",
+    lastEveningSentDate: "",
+    autoSentEventDate: "",
+    autoSentEventIds: [],
+  };
+}
+
+function emptyWorkspace(): WorkspaceData {
+  return {
+    activities: [],
+    transactions: [],
+    goals: [],
+    activityFolders: [],
+    events: [],
+    reminders: [],
+    incomeCategories: defaultIncomeCategories(),
+    expenseCategories: defaultExpenseCategories(),
+    saveCategories: defaultSaveCategories(),
+    telegramSettings: emptyTelegram(),
+  };
+}
+
+function normalizeProfile(value?: Partial<UserProfile> | null): UserProfile | null {
+  const name = typeof value?.name === "string" ? value.name.trim() : "";
+  if (!name) return null;
+  const username =
+    typeof value?.username === "string" && value.username.trim()
+      ? value.username.trim()
+      : name;
+  return {
+    name,
+    username,
+    password: typeof value?.password === "string" ? value.password : "",
+    ...(typeof value?.photo === "string" && value.photo
+      ? { photo: value.photo }
+      : {}),
+  };
+}
+
+function snapshotWorkspace(
+  state: Pick<
+    TrackingStore,
+    | "activities"
+    | "transactions"
+    | "goals"
+    | "activityFolders"
+    | "events"
+    | "reminders"
+    | "incomeCategories"
+    | "expenseCategories"
+    | "saveCategories"
+    | "telegramSettings"
+  >
+): WorkspaceData {
+  return {
+    activities: state.activities,
+    transactions: state.transactions,
+    goals: state.goals,
+    activityFolders: state.activityFolders,
+    events: state.events,
+    reminders: state.reminders,
+    incomeCategories: state.incomeCategories,
+    expenseCategories: state.expenseCategories,
+    saveCategories: state.saveCategories,
+    telegramSettings: state.telegramSettings,
+  };
+}
+
+function normalizeWorkspace(
+  p: Partial<WorkspaceData> | Partial<TrackingStore>,
+  allowDemo: boolean
+): WorkspaceData {
+  const existing = (p.transactions ?? []).map((t) => ({
+    ...t,
+    currency: normalizeMoneyCurrency(t.currency),
+  }));
+  const hasDemo = existing.some((t) => String(t.id).startsWith("demo-tx-"));
+  const transactions =
+    allowDemo && !hasDemo
+      ? [...buildDemoFinanceTransactions(100), ...existing]
+      : existing;
+
+  return {
+    activities: (p.activities ?? []).map((a) => ({
+      ...a,
+      folderId: a.folderId ?? null,
+      category: (a.category as ActivityCategory) || "work",
+      repeat: normalizeRepeatDays(
+        a.repeat as ActivityRepeat[] | ActivityRepeat | "none" | undefined
+      ),
+    })),
+    transactions,
+    goals: (p.goals ?? []).map((g) => {
+      const dates = normalizeGoalDates({
+        startDate: g.startDate,
+        targetDate: g.targetDate,
+        createdAt: g.createdAt,
+      });
+      const currency = normalizeMoneyCurrency(g.currency);
+      const currents = withGoalCurrents({
+        currency,
+        currentAmount: g.currentAmount,
+        currentKhr: g.currentKhr,
+        currentUsd: g.currentUsd,
+      });
+      return {
+        ...g,
+        description: g.description ?? "",
+        targetAmount: Math.max(0, Number(g.targetAmount) || 0),
+        currentAmount: currents.currentAmount,
+        currentKhr: currents.currentKhr,
+        currentUsd: currents.currentUsd,
+        currency,
+        startDate: dates.startDate,
+        targetDate: dates.targetDate,
+        contributions: (() => {
+          const existingContrib = normalizeGoalContributions(g.contributions);
+          if (existingContrib.length) return existingContrib;
+          return seedGoalContributions(currents, dates.startDate);
+        })(),
+        members: Array.isArray(g.members)
+          ? g.members.map((m) => String(m).trim()).filter(Boolean)
+          : [],
+        status:
+          g.status === "completed" || g.status === "paused" ? g.status : "active",
+      };
+    }),
+    activityFolders: (p.activityFolders ?? []).map((f) => ({
+      ...f,
+      parentId: f.parentId ?? null,
+    })),
+    events: (p.events ?? []).map((e) => {
+      const date = e.date || todayISO();
+      const legacyDays = normalizeRepeatDays(
+        e.repeat as ActivityRepeat[] | ActivityRepeat | "none" | undefined
+      );
+      return {
+        ...e,
+        location: e.location ?? "",
+        notes: e.notes ?? "",
+        allDay: Boolean(e.allDay),
+        endDate: e.endDate && e.endDate >= date ? e.endDate : date,
+        startTime: e.startTime ?? "",
+        endTime: e.endTime ?? "",
+        folderId: e.folderId ?? null,
+        repeat: legacyDays,
+        travelTime: normalizeEventTravelTime(e.travelTime),
+        repeatFrequency: normalizeEventRepeatFrequency(
+          e.repeatFrequency ?? (legacyDays.length ? "weekly" : "never")
+        ),
+        endRepeat: normalizeEventEndRepeat(e.endRepeat, date),
+        alert: normalizeEventAlert(e.alert),
+        completed: Boolean(e.completed),
+        completedAt: e.completedAt,
+      };
+    }),
+    reminders: (p.reminders ?? []).map((r) => ({
+      ...r,
+      notes: r.notes ?? "",
+      dueTime: r.dueTime ?? "",
+      completed: Boolean(r.completed),
+      repeat: normalizeRepeatDays(
+        r.repeat as ActivityRepeat[] | ActivityRepeat | "none" | undefined
+      ),
+      alert: normalizeEventAlert(r.alert),
+    })),
+    incomeCategories: normalizeFinanceCategories(
+      p.incomeCategories,
+      defaultIncomeCategories()
+    ),
+    expenseCategories: normalizeFinanceCategories(
+      p.expenseCategories,
+      defaultExpenseCategories()
+    ),
+    saveCategories: normalizeFinanceCategories(
+      p.saveCategories,
+      defaultSaveCategories()
+    ),
+    telegramSettings: {
+      botToken: p.telegramSettings?.botToken?.trim() ?? "",
+      chatId: p.telegramSettings?.chatId?.trim() ?? "",
+      enabled: Boolean(p.telegramSettings?.enabled),
+      sendTime: normalizeSendTime(p.telegramSettings?.sendTime),
+      eveningTime: normalizeSendTime(
+        p.telegramSettings?.eveningTime,
+        "18:00"
+      ),
+      lastAutoSentDate: p.telegramSettings?.lastAutoSentDate ?? "",
+      lastEveningSentDate: p.telegramSettings?.lastEveningSentDate ?? "",
+      autoSentEventDate: p.telegramSettings?.autoSentEventDate ?? "",
+      autoSentEventIds: Array.isArray(p.telegramSettings?.autoSentEventIds)
+        ? p.telegramSettings.autoSentEventIds.filter(
+            (id): id is string => typeof id === "string" && id.length > 0
+          )
+        : [],
+    },
+  };
+}
+
+function findAccount(
+  accounts: Record<string, AccountSnapshot>,
+  username: string
+): AccountSnapshot | undefined {
+  const key = accountKey(username);
+  if (accounts[key]) return accounts[key];
+  return Object.values(accounts).find((item) => {
+    const user = accountKey(item.profile.username);
+    const name = accountKey(item.profile.name);
+    return user === key || name === key;
+  });
+}
+
+function withSavedAccount(
+  state: TrackingStore,
+  accounts = { ...state.accounts }
+): Record<string, AccountSnapshot> {
+  if (!state.profile) return accounts;
+  const key = accountKey(state.profile.username || state.profile.name);
+  if (!key) return accounts;
+  accounts[key] = {
+    profile: state.profile,
+    ...snapshotWorkspace(state),
+  };
+  return accounts;
+}
+
 interface TrackingStore {
   activities: Activity[];
   transactions: Transaction[];
@@ -70,6 +323,7 @@ interface TrackingStore {
   saveCategories: FinanceCategoryOption[];
   telegramSettings: TelegramSettings;
   profile: UserProfile | null;
+  accounts: Record<string, AccountSnapshot>;
   signedIn: boolean;
   hydrated: boolean;
   setHydrated: (value: boolean) => void;
@@ -196,18 +450,9 @@ export const useTrackingStore = create<TrackingStore>()(
       incomeCategories: defaultIncomeCategories(),
       expenseCategories: defaultExpenseCategories(),
       saveCategories: defaultSaveCategories(),
-      telegramSettings: {
-        botToken: "",
-        chatId: "",
-        enabled: false,
-        sendTime: "07:00",
-        eveningTime: "18:00",
-        lastAutoSentDate: "",
-        lastEveningSentDate: "",
-        autoSentEventDate: "",
-        autoSentEventIds: [],
-      },
+      telegramSettings: emptyTelegram(),
       profile: null,
+      accounts: {},
       signedIn: false,
       hydrated: false,
       setHydrated: (value) => set({ hydrated: value }),
@@ -215,9 +460,10 @@ export const useTrackingStore = create<TrackingStore>()(
         const current = get().profile;
         const name = (patch.name ?? current?.name ?? "").trim();
         if (!name) {
-          set({ profile: null, signedIn: false });
+          get().signOut();
           return;
         }
+        const oldKey = accountKey(current?.username || current?.name);
         const username = (patch.username ?? current?.username ?? "").trim();
         const password =
           patch.password !== undefined
@@ -225,36 +471,60 @@ export const useTrackingStore = create<TrackingStore>()(
             : current?.password ?? "";
         const photo =
           patch.photo !== undefined ? patch.photo : current?.photo;
+        const profile: UserProfile = {
+          name,
+          username,
+          password,
+          ...(photo ? { photo } : {}),
+        };
+        const newKey = accountKey(profile.username || profile.name);
+        const accounts = { ...get().accounts };
+        if (oldKey && newKey && oldKey !== newKey) {
+          if (accounts[newKey]) return;
+          if (accounts[oldKey]) {
+            accounts[newKey] = { ...accounts[oldKey], profile };
+            delete accounts[oldKey];
+          }
+        }
         set({
-          profile: {
-            name,
-            username,
-            password,
-            ...(photo ? { photo } : {}),
-          },
+          profile,
           signedIn: true,
+          accounts,
         });
       },
-      clearProfile: () => set({ profile: null, signedIn: false }),
-      signOut: () => set({ signedIn: false }),
+      clearProfile: () => get().signOut(),
+      signOut: () => {
+        const accounts = withSavedAccount(get());
+        set({
+          ...emptyWorkspace(),
+          profile: null,
+          signedIn: false,
+          accounts,
+        });
+      },
       signUp: ({ name, username, password }) => {
         const nextName = name.trim();
         const nextUser = username.trim();
         if (!nextName) return "បញ្ចូលឈ្មោះ";
         if (!nextUser) return "បញ្ចូលឈ្មោះអ្នកប្រើ";
         if (!password.trim()) return "បញ្ចូលពាក្យសម្ងាត់";
-        const existing = get().profile;
-        if (existing?.username || existing?.password) {
+        const key = accountKey(nextUser);
+        const accounts = withSavedAccount(get());
+        if (findAccount(accounts, nextUser)) {
           return "មានគណនីរួចហើយ — សូមចូល";
         }
+        const profile: UserProfile = {
+          name: nextName,
+          username: nextUser,
+          password,
+        };
+        const workspace = emptyWorkspace();
+        accounts[key] = { profile, ...workspace };
         set({
-          profile: {
-            name: nextName,
-            username: nextUser,
-            password,
-            ...(existing?.photo ? { photo: existing.photo } : {}),
-          },
+          ...workspace,
+          profile,
           signedIn: true,
+          accounts,
         });
         return null;
       },
@@ -262,16 +532,32 @@ export const useTrackingStore = create<TrackingStore>()(
         const nextUser = username.trim();
         if (!nextUser) return "បញ្ចូលឈ្មោះអ្នកប្រើ";
         if (!password.trim()) return "បញ្ចូលពាក្យសម្ងាត់";
-        const existing = get().profile;
+        const accounts = withSavedAccount(get());
+        const existing = findAccount(accounts, nextUser);
         if (!existing) return "មិនទាន់មានគណនី — សូមបង្កើតគណនី";
-        const storedUser = (existing.username || existing.name || "").trim();
-        if (storedUser !== nextUser || existing.password !== password) {
+        const storedUser = (
+          existing.profile.username ||
+          existing.profile.name ||
+          ""
+        ).trim();
+        if (
+          accountKey(storedUser) !== accountKey(nextUser) ||
+          existing.profile.password !== password
+        ) {
           return "ឈ្មោះអ្នកប្រើ ឬ ពាក្យសម្ងាត់មិនត្រូវ";
         }
-        if (!existing.username) {
-          get().setProfile({ username: nextUser });
-        }
-        set({ signedIn: true });
+        const profile = existing.profile.username
+          ? existing.profile
+          : { ...existing.profile, username: nextUser };
+        const key = accountKey(profile.username || profile.name);
+        const workspace = normalizeWorkspace(existing, false);
+        accounts[key] = { profile, ...workspace };
+        set({
+          ...workspace,
+          profile,
+          signedIn: true,
+          accounts,
+        });
         return null;
       },
 
@@ -729,173 +1015,68 @@ export const useTrackingStore = create<TrackingStore>()(
     }),
     {
       name: "steady-personal-tracking",
-      partialize: (state) => ({
-        activities: state.activities,
-        transactions: state.transactions,
-        goals: state.goals,
-        activityFolders: state.activityFolders,
-        events: state.events,
-        reminders: state.reminders,
-        incomeCategories: state.incomeCategories,
-        expenseCategories: state.expenseCategories,
-        saveCategories: state.saveCategories,
-        telegramSettings: state.telegramSettings,
-        profile: state.profile,
-        signedIn: state.signedIn,
-      }),
+      partialize: (state) => {
+        const accounts = withSavedAccount(state);
+        return {
+          accounts,
+          signedIn: state.signedIn,
+          profile: state.profile,
+        };
+      },
       merge: (persisted, current) => {
-        const p = (persisted ?? {}) as Partial<TrackingStore>;
+        const p = (persisted ?? {}) as Partial<TrackingStore> & {
+          accounts?: Record<string, AccountSnapshot>;
+          activeAccount?: string | null;
+        };
+        const accounts: Record<string, AccountSnapshot> = {};
+        const rawAccounts =
+          p.accounts && typeof p.accounts === "object" ? p.accounts : {};
+
+        for (const [rawKey, rec] of Object.entries(rawAccounts)) {
+          const profile = normalizeProfile(rec?.profile);
+          if (!profile) continue;
+          const key = accountKey(profile.username || profile.name || rawKey);
+          accounts[key] = {
+            profile,
+            ...normalizeWorkspace(rec, false),
+          };
+        }
+
+        const legacyProfile = normalizeProfile(p.profile);
+        if (legacyProfile && Object.keys(accounts).length === 0) {
+          const key = accountKey(legacyProfile.username || legacyProfile.name);
+          accounts[key] = {
+            profile: legacyProfile,
+            ...normalizeWorkspace(p, true),
+          };
+        }
+
+        const activeKey = accountKey(
+          p.activeAccount || legacyProfile?.username || legacyProfile?.name
+        );
+        const signedIn =
+          p.signedIn === true ||
+          (p.signedIn == null && Boolean(legacyProfile));
+        const active =
+          signedIn && activeKey ? accounts[activeKey] ?? findAccount(accounts, activeKey) : undefined;
+
+        if (active) {
+          const workspace = normalizeWorkspace(active, false);
+          return {
+            ...current,
+            ...workspace,
+            profile: active.profile,
+            accounts,
+            signedIn: true,
+          };
+        }
+
         return {
           ...current,
-          ...p,
-          telegramSettings: {
-            botToken: p.telegramSettings?.botToken?.trim() ?? "",
-            chatId: p.telegramSettings?.chatId?.trim() ?? "",
-            enabled: Boolean(p.telegramSettings?.enabled),
-            sendTime: normalizeSendTime(p.telegramSettings?.sendTime),
-            eveningTime: normalizeSendTime(
-              p.telegramSettings?.eveningTime,
-              "18:00"
-            ),
-            lastAutoSentDate: p.telegramSettings?.lastAutoSentDate ?? "",
-            lastEveningSentDate: p.telegramSettings?.lastEveningSentDate ?? "",
-            autoSentEventDate: p.telegramSettings?.autoSentEventDate ?? "",
-            autoSentEventIds: Array.isArray(p.telegramSettings?.autoSentEventIds)
-              ? p.telegramSettings.autoSentEventIds.filter(
-                  (id): id is string => typeof id === "string" && id.length > 0
-                )
-              : [],
-          },
-          profile:
-            typeof p.profile?.name === "string" && p.profile.name.trim()
-              ? {
-                  name: p.profile.name.trim(),
-                  username:
-                    typeof p.profile.username === "string" &&
-                    p.profile.username.trim()
-                      ? p.profile.username.trim()
-                      : p.profile.name.trim(),
-                  password:
-                    typeof p.profile.password === "string"
-                      ? p.profile.password
-                      : "",
-                  ...(typeof p.profile.photo === "string" && p.profile.photo
-                    ? { photo: p.profile.photo }
-                    : {}),
-                }
-              : null,
-          signedIn:
-            p.signedIn === true ||
-            (p.signedIn == null &&
-              typeof p.profile?.name === "string" &&
-              Boolean(p.profile.name.trim())),
-          activities: (p.activities ?? []).map((a) => ({
-            ...a,
-            folderId: a.folderId ?? null,
-            category: (a.category as ActivityCategory) || "work",
-            repeat: normalizeRepeatDays(
-              a.repeat as ActivityRepeat[] | ActivityRepeat | "none" | undefined
-            ),
-          })),
-          goals: (p.goals ?? []).map((g) => {
-            const dates = normalizeGoalDates({
-              startDate: g.startDate,
-              targetDate: g.targetDate,
-              createdAt: g.createdAt,
-            });
-            const currency = normalizeMoneyCurrency(g.currency);
-            const currents = withGoalCurrents({
-              currency,
-              currentAmount: g.currentAmount,
-              currentKhr: g.currentKhr,
-              currentUsd: g.currentUsd,
-            });
-            return {
-              ...g,
-              description: g.description ?? "",
-              targetAmount: Math.max(0, Number(g.targetAmount) || 0),
-              currentAmount: currents.currentAmount,
-              currentKhr: currents.currentKhr,
-              currentUsd: currents.currentUsd,
-              currency,
-              startDate: dates.startDate,
-              targetDate: dates.targetDate,
-              contributions: (() => {
-                const existing = normalizeGoalContributions(g.contributions);
-                if (existing.length) return existing;
-                return seedGoalContributions(currents, dates.startDate);
-              })(),
-              members: Array.isArray(g.members)
-                ? g.members.map((m) => String(m).trim()).filter(Boolean)
-                : [],
-              status:
-                g.status === "completed" || g.status === "paused"
-                  ? g.status
-                  : "active",
-            };
-          }),
-          activityFolders: (p.activityFolders ?? []).map((f) => ({
-            ...f,
-            parentId: f.parentId ?? null,
-          })),
-          events: (p.events ?? []).map((e) => {
-            const date = e.date || todayISO();
-            const legacyDays = normalizeRepeatDays(
-              e.repeat as ActivityRepeat[] | ActivityRepeat | "none" | undefined
-            );
-            return {
-              ...e,
-              location: e.location ?? "",
-              notes: e.notes ?? "",
-              allDay: Boolean(e.allDay),
-              endDate: e.endDate && e.endDate >= date ? e.endDate : date,
-              startTime: e.startTime ?? "",
-              endTime: e.endTime ?? "",
-              folderId: e.folderId ?? null,
-              repeat: legacyDays,
-              travelTime: normalizeEventTravelTime(e.travelTime),
-              repeatFrequency: normalizeEventRepeatFrequency(
-                e.repeatFrequency ?? (legacyDays.length ? "weekly" : "never")
-              ),
-              endRepeat: normalizeEventEndRepeat(e.endRepeat, date),
-              alert: normalizeEventAlert(e.alert),
-              completed: Boolean(e.completed),
-              completedAt: e.completedAt,
-            };
-          }),
-          transactions: (() => {
-            const existing = (p.transactions ?? []).map((t) => ({
-              ...t,
-              currency: normalizeMoneyCurrency(t.currency),
-            }));
-            const hasDemo = existing.some((t) =>
-              String(t.id).startsWith("demo-tx-")
-            );
-            if (hasDemo) return existing;
-            return [...buildDemoFinanceTransactions(100), ...existing];
-          })(),
-          incomeCategories: normalizeFinanceCategories(
-            p.incomeCategories,
-            defaultIncomeCategories()
-          ),
-          expenseCategories: normalizeFinanceCategories(
-            p.expenseCategories,
-            defaultExpenseCategories()
-          ),
-          saveCategories: normalizeFinanceCategories(
-            p.saveCategories,
-            defaultSaveCategories()
-          ),
-          reminders: (p.reminders ?? []).map((r) => ({
-            ...r,
-            notes: r.notes ?? "",
-            dueTime: r.dueTime ?? "",
-            completed: Boolean(r.completed),
-            repeat: normalizeRepeatDays(
-              r.repeat as ActivityRepeat[] | ActivityRepeat | "none" | undefined
-            ),
-            alert: normalizeEventAlert(r.alert),
-          })),
+          ...emptyWorkspace(),
+          profile: null,
+          accounts,
+          signedIn: false,
         };
       },
       onRehydrateStorage: () => (state) => {
