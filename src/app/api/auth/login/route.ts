@@ -51,7 +51,25 @@ export async function POST(request: Request) {
       workspace: await loadWorkspace(row.id),
     });
   } catch (error) {
-    console.error(error);
-    return NextResponse.json({ error: "login_failed" }, { status: 500 });
+    console.error("Login failed:", error);
+    const message = error instanceof Error ? error.message : String(error);
+    let code = "login_failed";
+    if (/DATABASE_URL is not set/i.test(message)) code = "missing_database_url";
+    else if (/SESSION_SECRET is missing/i.test(message))
+      code = "missing_session_secret";
+    else if (
+      /ECONNREFUSED|ENOTFOUND|getaddrinfo|connection refused|timeout/i.test(
+        message
+      )
+    ) {
+      code = "database_unreachable";
+    } else if (
+      /password authentication failed|no pg_hba|role .* does not exist/i.test(
+        message
+      )
+    ) {
+      code = "database_auth_failed";
+    }
+    return NextResponse.json({ error: code }, { status: 500 });
   }
 }

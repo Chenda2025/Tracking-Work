@@ -164,7 +164,11 @@ export async function ensureSchema() {
   if (!schemaReady) {
     schemaReady = getPool()
       .query(SCHEMA_SQL)
-      .then(() => undefined);
+      .then(() => undefined)
+      .catch((error) => {
+        schemaReady = null;
+        throw error;
+      });
   }
   await schemaReady;
 }
