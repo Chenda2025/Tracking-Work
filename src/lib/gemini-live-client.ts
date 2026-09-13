@@ -353,25 +353,30 @@ export async function startGeminiLiveSession(options: {
     };
   }
 
+  function closeSocket() {
+    const current = socket;
+    socket = null;
+    if (current && current.readyState < WebSocket.CLOSING) current.close();
+  }
+
   try {
     const urls = LIVE_SOCKETS.map((base) => socketUrl(base, options.token));
     let lastError: unknown;
     for (const url of urls) {
       try {
         await connect(url);
-        lastError = null;
+        lastError = undefined;
         break;
       } catch (error) {
         lastError = error;
-        if (socket && socket.readyState < WebSocket.CLOSING) socket.close();
-        socket = null;
+        closeSocket();
       }
     }
     if (lastError) throw lastError;
     stopCapture = await startMicCapture(options.stream, sendAudio);
   } catch (error) {
     await player.close();
-    socket?.close();
+    closeSocket();
     throw error;
   }
 
@@ -380,7 +385,7 @@ export async function startGeminiLiveSession(options: {
       stopped = true;
       void stopCapture?.();
       void player.close();
-      if (socket && socket.readyState < WebSocket.CLOSING) socket.close();
+      closeSocket();
       options.callbacks.onClose?.();
     },
   };
