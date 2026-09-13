@@ -46,8 +46,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const hydrated = useTrackingStore((s) => s.hydrated);
   const signedIn = useTrackingStore((s) => s.signedIn);
+  const bootstrap = useTrackingStore((s) => s.bootstrap);
   const [nowStamp, setNowStamp] = useState<KhmerDateTimeStamp | null>(null);
   const isLogin = pathname === "/login";
+
+  useEffect(() => {
+    void bootstrap();
+  }, [bootstrap]);
+
+  useEffect(() => {
+    const stopZoom = (event: Event) => event.preventDefault();
+    document.addEventListener("gesturestart", stopZoom, { passive: false });
+    document.addEventListener("gesturechange", stopZoom, { passive: false });
+    document.addEventListener("gestureend", stopZoom, { passive: false });
+    return () => {
+      document.removeEventListener("gesturestart", stopZoom);
+      document.removeEventListener("gesturechange", stopZoom);
+      document.removeEventListener("gestureend", stopZoom);
+    };
+  }, []);
 
   useEffect(() => {
     const tick = () => setNowStamp(formatKhmerLunarDateTime(new Date()));

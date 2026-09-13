@@ -11,9 +11,8 @@ export function LoginScreen() {
   const login = useTrackingStore((s) => s.login);
   const signUp = useTrackingStore((s) => s.signUp);
   const profile = useTrackingStore((s) => s.profile);
-  const hasAccounts = useTrackingStore((s) => Object.keys(s.accounts).length > 0);
   const [mode, setMode] = useState<AuthMode>(
-    profile?.username || profile?.password || hasAccounts ? "login" : "signup"
+    profile?.username ? "login" : "signup"
   );
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
@@ -27,17 +26,19 @@ export function LoginScreen() {
     setPassword("");
   }
 
-  function submit(e: FormEvent) {
+  async function submit(e: FormEvent) {
     e.preventDefault();
+    setBusy(true);
+    setError("");
     const message =
       mode === "signup"
-        ? signUp({ name, username, password })
-        : login(username, password);
+        ? await signUp({ name, username, password })
+        : await login(username, password);
     if (message) {
       setError(message);
+      setBusy(false);
       return;
     }
-    setBusy(true);
     router.replace("/");
   }
 

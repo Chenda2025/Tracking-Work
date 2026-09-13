@@ -1,23 +1,34 @@
-# ថេរ — ប្រព័ន្ធតាមដានផ្ទាល់ខ្លួន
+# Theara personal tracking
 
-ប្រព័ន្ធតាមដានរួមសម្រាប់ **សកម្មភាព** **ចំណូល និងចំណាយ** និង **គោលដៅគ្រួសារ**។
+Khmer personal tracking for activities, money, and family goals.
 
-ភាសាអន្តរមុខ៖ **ខ្មែរ** តែប៉ុណ្ណោះ។
+Data is stored in **PostgreSQL**, not browser localStorage.
 
-## មុខងារ
+## Database (pgAdmin)
 
-- **ទិដ្ឋភាពទូទៅ** — រូបភាពប្រចាំថ្ងៃនៃគ្រប់ម៉ូឌុល
-- **សកម្មភាព** — កត់ត្រាភារកិច្ចការងារ/ផ្ទាល់ខ្លួន
-- **ចំណូល និងចំណាយ** — លំហូរលុយ និងសមតុល្យប្រចាំខែ
-- **គោលដៅគ្រួសារ** — គោលដៅរួម វឌ្ឍនភាព និងការរួមចំណែក
+Use the Homebrew server, not EnterpriseDB port 5432:
 
-ទិន្នន័យត្រូវបានរក្សាទុកក្នុងកម្មវិធីរុករក (`localStorage`)។
+- Host: `127.0.0.1`
+- Port: `5433`
+- Username: `admin123`
+- Password: empty
+- Database: `activity`
 
-## របៀបដំណើរការ
+Tables: `users`, `activity_folders`, `activities`, `finance_categories`, `transactions`, `goals`, `goal_contributions`, `calendar_events`, `reminders`, `telegram_settings`.
+
+## Run
 
 ```bash
 npm install
 npm run dev
 ```
 
-បើក [http://localhost:3000](http://localhost:3000)។
+Open http://localhost:3000
+
+Copy `.env.example` to `.env.local` if needed:
+
+```
+DATABASE_URL=postgresql://admin123@127.0.0.1:5433/activity
+SESSION_SECRET=change-this-to-a-long-random-string
+GEMINI_API_KEY=your-gemini-api-key
+```

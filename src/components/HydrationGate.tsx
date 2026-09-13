@@ -5,22 +5,16 @@ import { useTrackingStore } from "@/lib/store";
 
 export function HydrationGate({ children }: { children: React.ReactNode }) {
   const hydrated = useTrackingStore((s) => s.hydrated);
-  const setHydrated = useTrackingStore((s) => s.setHydrated);
+  const bootstrap = useTrackingStore((s) => s.bootstrap);
 
   useEffect(() => {
-    const unsub = useTrackingStore.persist.onFinishHydration(() => {
-      setHydrated(true);
-    });
-    if (useTrackingStore.persist.hasHydrated()) {
-      setHydrated(true);
-    }
-    return unsub;
-  }, [setHydrated]);
+    void bootstrap();
+  }, [bootstrap]);
 
   if (!hydrated) {
     return (
       <div className="surface flex min-h-[50vh] items-center justify-center p-8">
-        <p className="text-ink-muted">កំពុងផ្ទុកទិន្នន័យតាមដានរបស់អ្នក…</p>
+        <p className="text-ink-muted">Loading your data...</p>
       </div>
     );
   }

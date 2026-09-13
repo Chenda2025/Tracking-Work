@@ -1,7 +1,14 @@
 "use client";
 
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import {
+  apiLogin,
+  apiLogout,
+  apiMe,
+  apiPatchProfile,
+  apiSaveWorkspace,
+  apiSignup,
+} from "./api-client";
 import type {
   Activity,
   ActivityCategory,
@@ -330,13 +337,14 @@ interface TrackingStore {
   setTelegramSettings: (patch: Partial<TelegramSettings>) => void;
   setProfile: (patch: Partial<UserProfile>) => void;
   clearProfile: () => void;
-  login: (username: string, password: string) => string | null;
+  bootstrap: () => Promise<void>;
+  login: (username: string, password: string) => Promise<string | null>;
   signUp: (input: {
     name: string;
     username: string;
     password: string;
-  }) => string | null;
-  signOut: () => void;
+  }) => Promise<string | null>;
+  signOut: () => Promise<void>;
 
   addActivity: (input: {
     title: string;
@@ -438,9 +446,82 @@ interface TrackingStore {
   deleteReminder: (id: string) => void;
 }
 
-export const useTrackingStore = create<TrackingStore>()(
-  persist(
-    (set, get) => ({
+let bootstrapping = false;
+let bootstrapPromise: Promise<void> | null = null;
+let saveTimer: number | undefined;
+
+function queueWorkspaceSave() {
+  if (bootstrapping || typeof window === "undefined") return;
+  const state = useTrackingStore.getState();
+  if (!state.signedIn || !state.hydrated) return;
+  window.clearTimeout(saveTimer);
+  saveTimer = window.setTimeout(() => {
+    const current = useTrackingStore.getState();
+    if (!current.signedIn || !current.hydrated) return;
+    void apiSaveWorkspace(snapshotWorkspace(current));
+  }, 500);
+}
+
+function readLegacyWorkspace(username: string): WorkspaceData | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem("steady-personal-tracking");
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as {
+      state?: {
+        accounts?: Record<string, AccountSnapshot>;
+        profile?: UserProfile;
+      };
+    };
+    const accounts = parsed.state?.accounts ?? {};
+    const match = findAccount(accounts, username);
+    if (!match) return null;
+    const workspace = normalizeWorkspace(match, false);
+    const empty =
+      workspace.activities.length === 0 &&
+      workspace.transactions.length === 0 &&
+      workspace.goals.length === 0 &&
+      workspace.activityFolders.length === 0 &&
+      workspace.events.length === 0 &&
+      workspace.reminders.length === 0;
+    return empty ? null : workspace;
+  } catch {
+    return null;
+  }
+}
+
+function applyAuth(
+  set: (partial: Partial<TrackingStore>) => void,
+  profile: UserProfile,
+  workspace: Partial<WorkspaceData>
+) {
+  const normalized = normalizeWorkspace(workspace, false);
+  const legacy = isWorkspaceBare(normalized)
+    ? readLegacyWorkspace(profile.username || profile.name)
+    : null;
+  set({
+    ...(legacy ?? normalized),
+    profile: { ...profile, password: "" },
+    accounts: {},
+    signedIn: true,
+  });
+  if (legacy) {
+    void apiSaveWorkspace(legacy);
+  }
+}
+
+function isWorkspaceBare(data: WorkspaceData) {
+  return (
+    data.activities.length === 0 &&
+    data.transactions.length === 0 &&
+    data.goals.length === 0 &&
+    data.activityFolders.length === 0 &&
+    data.events.length === 0 &&
+    data.reminders.length === 0
+  );
+}
+
+export const useTrackingStore = create<TrackingStore>()((set, get) => ({
       activities: [],
       transactions: [],
       goals: [],
@@ -456,108 +537,124 @@ export const useTrackingStore = create<TrackingStore>()(
       signedIn: false,
       hydrated: false,
       setHydrated: (value) => set({ hydrated: value }),
+      bootstrap: async () => {
+        if (bootstrapPromise) return bootstrapPromise;
+        bootstrapPromise = (async () => {
+          bootstrapping = true;
+          try {
+            const session = await apiMe();
+            if (!session?.signedIn) {
+              set({
+                ...emptyWorkspace(),
+                profile: null,
+                accounts: {},
+                signedIn: false,
+                hydrated: true,
+              });
+              return;
+            }
+            applyAuth(
+              set,
+              session.profile,
+              session.workspace as Partial<WorkspaceData>
+            );
+            set({ hydrated: true });
+          } catch {
+            set({
+              ...emptyWorkspace(),
+              profile: null,
+              accounts: {},
+              signedIn: false,
+              hydrated: true,
+            });
+          } finally {
+            bootstrapping = false;
+          }
+        })();
+        return bootstrapPromise;
+      },
       setProfile: (patch) => {
         const current = get().profile;
         const name = (patch.name ?? current?.name ?? "").trim();
         if (!name) {
-          get().signOut();
+          void get().signOut();
           return;
         }
-        const oldKey = accountKey(current?.username || current?.name);
         const username = (patch.username ?? current?.username ?? "").trim();
-        const password =
-          patch.password !== undefined
-            ? patch.password
-            : current?.password ?? "";
         const photo =
           patch.photo !== undefined ? patch.photo : current?.photo;
         const profile: UserProfile = {
           name,
           username,
-          password,
+          password: "",
           ...(photo ? { photo } : {}),
         };
-        const newKey = accountKey(profile.username || profile.name);
-        const accounts = { ...get().accounts };
-        if (oldKey && newKey && oldKey !== newKey) {
-          if (accounts[newKey]) return;
-          if (accounts[oldKey]) {
-            accounts[newKey] = { ...accounts[oldKey], profile };
-            delete accounts[oldKey];
-          }
-        }
         set({
           profile,
           signedIn: true,
-          accounts,
+        });
+        void apiPatchProfile({
+          name,
+          username,
+          ...(patch.password !== undefined ? { password: patch.password } : {}),
+          ...(patch.photo !== undefined ? { photo: patch.photo } : {}),
         });
       },
-      clearProfile: () => get().signOut(),
-      signOut: () => {
-        const accounts = withSavedAccount(get());
+      clearProfile: () => {
+        void get().signOut();
+      },
+      signOut: async () => {
+        bootstrapping = true;
+        bootstrapPromise = null;
+        await apiLogout();
         set({
           ...emptyWorkspace(),
           profile: null,
           signedIn: false,
-          accounts,
+          accounts: {},
         });
+        bootstrapping = false;
       },
-      signUp: ({ name, username, password }) => {
+      signUp: async ({ name, username, password }) => {
         const nextName = name.trim();
         const nextUser = username.trim();
-        if (!nextName) return "បញ្ចូលឈ្មោះ";
-        if (!nextUser) return "បញ្ចូលឈ្មោះអ្នកប្រើ";
-        if (!password.trim()) return "បញ្ចូលពាក្យសម្ងាត់";
-        const key = accountKey(nextUser);
-        const accounts = withSavedAccount(get());
-        if (findAccount(accounts, nextUser)) {
-          return "មានគណនីរួចហើយ — សូមចូល";
-        }
-        const profile: UserProfile = {
+        if (!nextName) return "Enter name";
+        if (!nextUser) return "Enter username";
+        if (!password.trim()) return "Enter password";
+        bootstrapping = true;
+        const result = await apiSignup({
           name: nextName,
           username: nextUser,
           password,
-        };
-        const workspace = emptyWorkspace();
-        accounts[key] = { profile, ...workspace };
-        set({
-          ...workspace,
-          profile,
-          signedIn: true,
-          accounts,
         });
+        if (typeof result === "string") {
+          bootstrapping = false;
+          return result;
+        }
+        applyAuth(
+          set,
+          result.profile,
+          result.workspace as Partial<WorkspaceData>
+        );
+        bootstrapping = false;
         return null;
       },
-      login: (username, password) => {
+      login: async (username, password) => {
         const nextUser = username.trim();
-        if (!nextUser) return "បញ្ចូលឈ្មោះអ្នកប្រើ";
-        if (!password.trim()) return "បញ្ចូលពាក្យសម្ងាត់";
-        const accounts = withSavedAccount(get());
-        const existing = findAccount(accounts, nextUser);
-        if (!existing) return "មិនទាន់មានគណនី — សូមបង្កើតគណនី";
-        const storedUser = (
-          existing.profile.username ||
-          existing.profile.name ||
-          ""
-        ).trim();
-        if (
-          accountKey(storedUser) !== accountKey(nextUser) ||
-          existing.profile.password !== password
-        ) {
-          return "ឈ្មោះអ្នកប្រើ ឬ ពាក្យសម្ងាត់មិនត្រូវ";
+        if (!nextUser) return "Enter username";
+        if (!password.trim()) return "Enter password";
+        bootstrapping = true;
+        const result = await apiLogin(nextUser, password);
+        if (typeof result === "string") {
+          bootstrapping = false;
+          return result;
         }
-        const profile = existing.profile.username
-          ? existing.profile
-          : { ...existing.profile, username: nextUser };
-        const key = accountKey(profile.username || profile.name);
-        const workspace = normalizeWorkspace(existing, false);
-        accounts[key] = { profile, ...workspace };
-        set({
-          ...workspace,
-          profile,
-          signedIn: true,
-          accounts,
-        });
+        applyAuth(
+          set,
+          result.profile,
+          result.workspace as Partial<WorkspaceData>
+        );
+        bootstrapping = false;
         return null;
       },
 
@@ -1012,76 +1109,24 @@ export const useTrackingStore = create<TrackingStore>()(
       deleteReminder: (id) => {
         set({ reminders: get().reminders.filter((item) => item.id !== id) });
       },
-    }),
-    {
-      name: "steady-personal-tracking",
-      partialize: (state) => {
-        const accounts = withSavedAccount(state);
-        return {
-          accounts,
-          signedIn: state.signedIn,
-          profile: state.profile,
-        };
-      },
-      merge: (persisted, current) => {
-        const p = (persisted ?? {}) as Partial<TrackingStore> & {
-          accounts?: Record<string, AccountSnapshot>;
-          activeAccount?: string | null;
-        };
-        const accounts: Record<string, AccountSnapshot> = {};
-        const rawAccounts =
-          p.accounts && typeof p.accounts === "object" ? p.accounts : {};
+}));
 
-        for (const [rawKey, rec] of Object.entries(rawAccounts)) {
-          const profile = normalizeProfile(rec?.profile);
-          if (!profile) continue;
-          const key = accountKey(profile.username || profile.name || rawKey);
-          accounts[key] = {
-            profile,
-            ...normalizeWorkspace(rec, false),
-          };
-        }
-
-        const legacyProfile = normalizeProfile(p.profile);
-        if (legacyProfile && Object.keys(accounts).length === 0) {
-          const key = accountKey(legacyProfile.username || legacyProfile.name);
-          accounts[key] = {
-            profile: legacyProfile,
-            ...normalizeWorkspace(p, true),
-          };
-        }
-
-        const activeKey = accountKey(
-          p.activeAccount || legacyProfile?.username || legacyProfile?.name
-        );
-        const signedIn =
-          p.signedIn === true ||
-          (p.signedIn == null && Boolean(legacyProfile));
-        const active =
-          signedIn && activeKey ? accounts[activeKey] ?? findAccount(accounts, activeKey) : undefined;
-
-        if (active) {
-          const workspace = normalizeWorkspace(active, false);
-          return {
-            ...current,
-            ...workspace,
-            profile: active.profile,
-            accounts,
-            signedIn: true,
-          };
-        }
-
-        return {
-          ...current,
-          ...emptyWorkspace(),
-          profile: null,
-          accounts,
-          signedIn: false,
-        };
-      },
-      onRehydrateStorage: () => (state) => {
-        state?.setHydrated(true);
-      },
-    }
-  )
-);
+useTrackingStore.subscribe((state, prev) => {
+  if (bootstrapping) return;
+  if (!state.signedIn || !state.hydrated) return;
+  const keys = [
+    "activities",
+    "transactions",
+    "goals",
+    "activityFolders",
+    "events",
+    "reminders",
+    "incomeCategories",
+    "expenseCategories",
+    "saveCategories",
+    "telegramSettings",
+  ] as const;
+  if (keys.some((key) => state[key] !== prev[key])) {
+    queueWorkspaceSave();
+  }
+});
