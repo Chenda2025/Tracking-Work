@@ -121,7 +121,9 @@ function CalendarContent() {
   const setEventCompleted = useTrackingStore((s) => s.setEventCompleted);
   const deleteEvent = useTrackingStore((s) => s.deleteEvent);
   const addReminder = useTrackingStore((s) => s.addReminder);
+  const updateReminder = useTrackingStore((s) => s.updateReminder);
   const toggleReminder = useTrackingStore((s) => s.toggleReminder);
+  const deleteReminder = useTrackingStore((s) => s.deleteReminder);
   const addActivityFolder = useTrackingStore((s) => s.addActivityFolder);
   const updateActivityFolder = useTrackingStore((s) => s.updateActivityFolder);
   const deleteActivityFolder = useTrackingStore((s) => s.deleteActivityFolder);
@@ -144,6 +146,9 @@ function CalendarContent() {
   const [deleteConfirmInput, setDeleteConfirmInput] = useState("");
   const [deleteConfirmError, setDeleteConfirmError] = useState("");
   const [editingEventId, setEditingEventId] = useState<string | null>(null);
+  const [editingReminderId, setEditingReminderId] = useState<string | null>(
+    null
+  );
   const [repeatingEventId, setRepeatingEventId] = useState<string | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
 
@@ -339,6 +344,7 @@ function CalendarContent() {
   function openCreate(kind: "event" | "reminder") {
     setChooserOpen(false);
     setEditingEventId(null);
+    setEditingReminderId(null);
     if (kind === "event") {
       setEventTitle("");
       setEventLocation("");
@@ -391,6 +397,25 @@ function CalendarContent() {
     setEventAlert(item.alert ?? "none");
     setSelectedISO(item.date);
     setCreateKind("event");
+  }
+
+  function openEditReminder(item: Reminder) {
+    setEditingReminderId(item.id);
+    setReminderTitle(item.title);
+    setReminderNotes(item.notes ?? "");
+    setReminderDate(item.dueDate);
+    setReminderHasTime(Boolean(item.dueTime));
+    setReminderTime(item.dueTime || nowClockTime());
+    setReminderRepeat(item.repeat ?? []);
+    setReminderAlert(item.alert ?? "none");
+    setSelectedISO(item.dueDate);
+    setCreateKind("reminder");
+  }
+
+  function closeReminderForm() {
+    resetReminderForm();
+    setEditingReminderId(null);
+    setCreateKind(null);
   }
 
   function openRepeatEvent(item: CalendarEvent) {
@@ -501,16 +526,20 @@ function CalendarContent() {
   function onSubmitReminder(e: FormEvent) {
     e.preventDefault();
     if (!reminderTitle.trim()) return;
-    addReminder({
-      title: reminderTitle,
-      notes: reminderNotes,
+    const payload = {
+      title: reminderTitle.trim(),
+      notes: reminderNotes.trim(),
       dueDate: reminderDate,
       dueTime: reminderHasTime ? reminderTime : "",
       repeat: reminderRepeat,
       alert: reminderAlert,
-    });
-    resetReminderForm();
-    setCreateKind(null);
+    };
+    if (editingReminderId) {
+      updateReminder(editingReminderId, payload);
+    } else {
+      addReminder(payload);
+    }
+    closeReminderForm();
     setSelectedISO(reminderDate);
     setMonth(
       new Date(parseISO(reminderDate).getFullYear(), parseISO(reminderDate).getMonth(), 1)
@@ -787,7 +816,10 @@ function CalendarContent() {
                   <ReminderAgendaItem
                     key={item.id}
                     item={item}
+                    showMenu={false}
                     onToggle={() => toggleReminder(item.id)}
+                    onEdit={() => openEditReminder(item)}
+                    onDelete={() => deleteReminder(item.id)}
                   />
                 ))}
               </ul>
@@ -916,6 +948,8 @@ function CalendarContent() {
                       <ReminderAgendaItem
                         key={item.id}
                         item={item}
+                        onEdit={() => openEditReminder(item)}
+                        onDelete={() => deleteReminder(item.id)}
                       />
                     ))}
                   </ul>
@@ -1563,11 +1597,8 @@ function CalendarContent() {
 
       <Modal
         open={createKind === "reminder"}
-        title="ការរំលឹកថ្មី"
-        onClose={() => {
-          resetReminderForm();
-          setCreateKind(null);
-        }}
+        title={editingReminderId ? "កែការរំលឹក" : "ការរំលឹកថ្មី"}
+        onClose={closeReminderForm}
       >
         <form className="event-form" onSubmit={onSubmitReminder}>
           <section className="event-card">
@@ -1639,10 +1670,7 @@ function CalendarContent() {
             <button
               type="button"
               className="btn btn-ghost"
-              onClick={() => {
-                resetReminderForm();
-                setCreateKind(null);
-              }}
+              onClick={closeReminderForm}
             >
               បោះបង់
             </button>
@@ -1967,20 +1995,57 @@ function EventAgendaItem({
 function ReminderAgendaItem({
   item,
   compact,
+  showMenu = true,
   onToggle,
+  onEdit,
+  onDelete,
 }: {
   item: Reminder;
   compact?: boolean;
+  showMenu?: boolean;
   onToggle?: () => void;
+  onEdit?: () => void;
+  onDelete?: () => void;
 }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
   const repeat = labelActivityRepeat(item.repeat);
   const alert = labelEventAlert(item.alert);
   const tags = [
     repeat,
     alert ? `ជូនដំណឹង ${alert}` : "",
   ].filter(Boolean);
+
+  function runMenuAction(e: MouseEvent, action?: () => void) {
+    e.preventDefault();
+    e.stopPropagation();
+    setMenuOpen(false);
+    window.setTimeout(() => action?.(), 0);
+  }
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    function onPointerDown(e: PointerEvent) {
+      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setMenuOpen(false);
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen]);
+
   return (
-    <li className={`calendar-item reminder ${item.completed ? "is-done" : ""}`}>
+    <li
+      className={`calendar-item reminder ${item.completed ? "is-done" : ""} ${
+        !showMenu && onEdit ? "is-tap-edit" : ""
+      }`}
+      onClick={!showMenu && onEdit ? () => onEdit() : undefined}
+    >
       <div className="calendar-item-when">
         <span className="calendar-item-start">
           {item.dueTime ? formatClock(item.dueTime) : "—"}
@@ -2006,10 +2071,58 @@ function ReminderAgendaItem({
         type="button"
         className={`calendar-check ${item.completed ? "is-on" : ""}`}
         aria-label={item.completed ? "មិនទាន់រួច" : "សម្គាល់រួច"}
-        onClick={onToggle}
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggle();
+        }}
       >
         {item.completed ? <Check size={13} /> : null}
       </button>
+      ) : null}
+      {showMenu ? (
+      <div className="calendar-item-menu" ref={menuRef}>
+        <button
+          type="button"
+          className="calendar-item-menu-trigger"
+          aria-label="ម៉ឺនុយការរំលឹក"
+          aria-expanded={menuOpen}
+          aria-haspopup="menu"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setMenuOpen((open) => !open);
+          }}
+        >
+          <MoreVertical size={16} />
+        </button>
+        {menuOpen ? (
+          <div
+            className="calendar-item-menu-panel"
+            role="menu"
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              role="menuitem"
+              className="calendar-item-menu-btn is-edit"
+              aria-label="កែការរំលឹក"
+              onClick={(e) => runMenuAction(e, onEdit)}
+            >
+              <Pencil size={15} />
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="calendar-item-menu-btn is-delete"
+              aria-label="លុបការរំលឹក"
+              onClick={(e) => runMenuAction(e, onDelete)}
+            >
+              <Trash2 size={15} />
+            </button>
+          </div>
+        ) : null}
+      </div>
       ) : null}
     </li>
   );
