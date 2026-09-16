@@ -63,8 +63,16 @@ export function Modal({
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
       if (!panel?.contains(target)) return;
+      const isTextField =
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        (target instanceof HTMLInputElement &&
+          !["checkbox", "radio", "button", "submit", "reset", "hidden", "range"].includes(
+            target.type
+          ));
+      if (!isTextField) return;
       window.setTimeout(() => {
-        target.scrollIntoView({ block: "center", inline: "nearest" });
+        target.scrollIntoView({ block: "nearest", inline: "nearest" });
       }, 80);
     };
     syncKeyboard();

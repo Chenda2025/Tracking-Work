@@ -2,15 +2,11 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { Send } from "lucide-react";
+import { ClockPicks } from "@/components/ClockPicks";
 import { Modal } from "@/components/Modal";
 import { useTrackingStore } from "@/lib/store";
 import { buildMorningDigest, sendTelegramMessage } from "@/lib/telegramDaily";
-import {
-  joinClock,
-  normalizeSendTime,
-  splitClock,
-  type ClockPeriod,
-} from "@/lib/utils";
+import { normalizeSendTime } from "@/lib/utils";
 
 function SendTimeField({
   label,
@@ -21,75 +17,15 @@ function SendTimeField({
   value: string;
   onChange: (next: string) => void;
 }) {
-  const clock = splitClock(value);
-  const hours = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
-  const minutes = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
-  const minuteValue = minutes.reduce((best, item) =>
-    Math.abs(item - clock.minute) < Math.abs(best - clock.minute) ? item : best
-  );
-
-  function setPart(next: {
-    hour12?: number;
-    minute?: number;
-    period?: ClockPeriod;
-  }) {
-    onChange(
-      joinClock(
-        next.hour12 ?? clock.hour12,
-        next.minute ?? clock.minute,
-        next.period ?? clock.period
-      )
-    );
-  }
-
   return (
     <div className="event-row event-row-clock">
       <span className="event-row-label">{label}</span>
-      <div className="event-time-line">
-        <select
-          className="event-time-select"
-          value={clock.hour12}
-          onChange={(e) => setPart({ hour12: Number(e.target.value) })}
-          aria-label={label}
-        >
-          {hours.map((h) => (
-            <option key={h} value={h}>
-              {h}
-            </option>
-          ))}
-        </select>
-        <span className="calendar-time-colon">:</span>
-        <select
-          className="event-time-select"
-          value={minuteValue}
-          onChange={(e) => setPart({ minute: Number(e.target.value) })}
-          aria-label={label}
-        >
-          {minutes.map((m) => (
-            <option key={m} value={m}>
-              {String(m).padStart(2, "0")}
-            </option>
-          ))}
-        </select>
-        <div className="event-period" role="group" aria-label="ព្រឹក ឬ ល្ងាច">
-          <button
-            type="button"
-            data-active={clock.period === "am"}
-            aria-pressed={clock.period === "am"}
-            onClick={() => setPart({ period: "am" })}
-          >
-            ព្រឹក
-          </button>
-          <button
-            type="button"
-            data-active={clock.period === "pm"}
-            aria-pressed={clock.period === "pm"}
-            onClick={() => setPart({ period: "pm" })}
-          >
-            ល្ងាច
-          </button>
-        </div>
-      </div>
+      <ClockPicks
+        value={value}
+        onChange={onChange}
+        hourLabel={`${label} ម៉ោង`}
+        minuteLabel={`${label} នាទី`}
+      />
     </div>
   );
 }

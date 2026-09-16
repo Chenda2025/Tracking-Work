@@ -28,7 +28,9 @@ import {
   Send,
   Trash2,
 } from "lucide-react";
+import { ClockPicks } from "@/components/ClockPicks";
 import { DatePickerField } from "@/components/DatePicker";
+import { EventSelect } from "@/components/EventSelect";
 import { DoneExportModal } from "@/components/DoneExportModal";
 import { EmptyState } from "@/components/EmptyState";
 import { HydrationGate } from "@/components/HydrationGate";
@@ -72,7 +74,6 @@ import {
   splitClock,
   todayISO,
   weekdayFromISO,
-  type ClockPeriod,
 } from "@/lib/utils";
 
 type CreateKind = "event" | "reminder" | null;
@@ -1175,37 +1176,30 @@ function CalendarContent() {
           <section className="event-card">
             <label className="event-row">
               <span className="event-row-label">ធ្វើម្តងទៀត</span>
-              <select
-                className="event-row-input event-row-select"
+              <EventSelect
+                ariaLabel="ធ្វើម្តងទៀត"
                 value={eventRepeatFrequency}
-                onChange={(e) => {
-                  const next = e.target.value as EventRepeatFrequency;
+                options={EVENT_REPEAT_FREQUENCIES}
+                onChange={(next) => {
                   setEventRepeatFrequency(next);
                   if (next === "never") setEventEndRepeatType("never");
                 }}
-              >
-                {EVENT_REPEAT_FREQUENCIES.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
+              />
             </label>
             {eventRepeatFrequency !== "never" ? (
               <>
                 <label className="event-row">
                   <span className="event-row-label">បញ្ចប់</span>
-                  <select
-                    className="event-row-input event-row-select"
+                  <EventSelect
+                    ariaLabel="បញ្ចប់"
                     value={eventEndRepeatType}
-                    onChange={(e) =>
-                      setEventEndRepeatType(e.target.value as EventEndRepeat["type"])
-                    }
-                  >
-                    <option value="never">មិនដែល</option>
-                    <option value="on_date">នៅថ្ងៃ</option>
-                    <option value="after">បន្ទាប់ពីចំនួនដង</option>
-                  </select>
+                    options={[
+                      { value: "never", label: "មិនដែល" },
+                      { value: "on_date", label: "នៅថ្ងៃ" },
+                      { value: "after", label: "ចំនួនដង" },
+                    ]}
+                    onChange={setEventEndRepeatType}
+                  />
                 </label>
                 {eventEndRepeatType === "on_date" ? (
                   <DatePickerField
@@ -1438,24 +1432,24 @@ function CalendarContent() {
             </label>
             <label className="event-row">
               <span className="event-row-label">ថត</span>
-              <select
-                className="event-row-input event-row-select"
+              <EventSelect
+                ariaLabel="ថត"
                 value={eventFolderId}
-                onChange={(e) => setEventFolderId(e.target.value)}
-              >
-                <option value="">គ្មានថត</option>
-                {rootFolders.map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.name}
-                  </option>
-                ))}
-                {eventFolderId &&
-                !rootFolders.some((f) => f.id === eventFolderId) ? (
-                  <option value={eventFolderId}>
-                    {folderNameById[eventFolderId] ?? eventFolderId}
-                  </option>
-                ) : null}
-              </select>
+                options={[
+                  { value: "", label: "គ្មានថត" },
+                  ...rootFolders.map((f) => ({ value: f.id, label: f.name })),
+                  ...(eventFolderId &&
+                  !rootFolders.some((f) => f.id === eventFolderId)
+                    ? [
+                        {
+                          value: eventFolderId,
+                          label: folderNameById[eventFolderId] ?? eventFolderId,
+                        },
+                      ]
+                    : []),
+                ]}
+                onChange={setEventFolderId}
+              />
             </label>
           </section>
 
@@ -1496,37 +1490,30 @@ function CalendarContent() {
           <section className="event-card">
             <label className="event-row">
               <span className="event-row-label">ធ្វើម្តងទៀត</span>
-              <select
-                className="event-row-input event-row-select"
+              <EventSelect
+                ariaLabel="ធ្វើម្តងទៀត"
                 value={eventRepeatFrequency}
-                onChange={(e) => {
-                  const next = e.target.value as EventRepeatFrequency;
+                options={EVENT_REPEAT_FREQUENCIES}
+                onChange={(next) => {
                   setEventRepeatFrequency(next);
                   if (next === "never") setEventEndRepeatType("never");
                 }}
-              >
-                {EVENT_REPEAT_FREQUENCIES.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
+              />
             </label>
             {eventRepeatFrequency !== "never" ? (
               <>
                 <label className="event-row">
                   <span className="event-row-label">បញ្ចប់</span>
-                  <select
-                    className="event-row-input event-row-select"
+                  <EventSelect
+                    ariaLabel="បញ្ចប់"
                     value={eventEndRepeatType}
-                    onChange={(e) =>
-                      setEventEndRepeatType(e.target.value as EventEndRepeat["type"])
-                    }
-                  >
-                    <option value="never">មិនដែល</option>
-                    <option value="on_date">នៅថ្ងៃ</option>
-                    <option value="after">បន្ទាប់ពីចំនួនដង</option>
-                  </select>
+                    options={[
+                      { value: "never", label: "មិនដែល" },
+                      { value: "on_date", label: "នៅថ្ងៃ" },
+                      { value: "after", label: "ចំនួនដង" },
+                    ]}
+                    onChange={setEventEndRepeatType}
+                  />
                 </label>
                 {eventEndRepeatType === "on_date" ? (
                   <DatePickerField
@@ -1557,17 +1544,12 @@ function CalendarContent() {
             ) : null}
             <label className="event-row">
               <span className="event-row-label">ការជូនដំណឹង</span>
-              <select
-                className="event-row-input event-row-select"
+              <EventSelect
+                ariaLabel="ការជូនដំណឹង"
                 value={eventAlert}
-                onChange={(e) => setEventAlert(e.target.value as EventAlert)}
-              >
-                {EVENT_ALERTS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
+                options={EVENT_ALERTS}
+                onChange={setEventAlert}
+              />
             </label>
           </section>
 
@@ -1629,17 +1611,13 @@ function CalendarContent() {
             <RepeatField value={reminderRepeat} onChange={setReminderRepeat} />
             <label className="event-when">
               <span className="event-when-label">ជូនដំណឹងមុន</span>
-              <select
-                className="event-when-select"
+              <EventSelect
+                variant="block"
+                ariaLabel="ជូនដំណឹងមុន"
                 value={reminderAlert}
-                onChange={(e) => setReminderAlert(e.target.value as EventAlert)}
-              >
-                {EVENT_ALERTS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
+                options={EVENT_ALERTS}
+                onChange={setReminderAlert}
+              />
             </label>
             <div className="event-when">
               <label className="event-when-switch">
@@ -2150,20 +2128,6 @@ function DateTimeField({
   onDateChange: (next: string) => void;
   onTimeChange?: (next: string) => void;
 }) {
-  const clock = splitClock(time);
-  const hours = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
-  const minutes = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
-
-  function setPart(next: { hour12?: number; minute?: number; period?: ClockPeriod }) {
-    onTimeChange?.(
-      joinClock(
-        next.hour12 ?? clock.hour12,
-        next.minute ?? clock.minute,
-        next.period ?? clock.period
-      )
-    );
-  }
-
   return (
     <div className="event-when">
       <span className="event-when-label">{label}</span>
@@ -2177,53 +2141,12 @@ function DateTimeField({
           required
         />
         {showTime ? (
-          <div className="event-time-line">
-            <select
-              className="event-time-select"
-              value={clock.hour12}
-              onChange={(e) => setPart({ hour12: Number(e.target.value) })}
-              aria-label={`${label} ម៉ោង`}
-            >
-              {hours.map((h) => (
-                <option key={h} value={h}>
-                  {h}
-                </option>
-              ))}
-            </select>
-            <span className="calendar-time-colon" aria-hidden>
-              :
-            </span>
-            <select
-              className="event-time-select"
-              value={clock.minute}
-              onChange={(e) => setPart({ minute: Number(e.target.value) })}
-              aria-label={`${label} នាទី`}
-            >
-              {minutes.map((m) => (
-                <option key={m} value={m}>
-                  {String(m).padStart(2, "0")}
-                </option>
-              ))}
-            </select>
-            <div className="event-period" role="group" aria-label="ព្រឹក ឬ ល្ងាច">
-              <button
-                type="button"
-                data-active={clock.period === "am"}
-                aria-pressed={clock.period === "am"}
-                onClick={() => setPart({ period: "am" })}
-              >
-                ព្រឹក
-              </button>
-              <button
-                type="button"
-                data-active={clock.period === "pm"}
-                aria-pressed={clock.period === "pm"}
-                onClick={() => setPart({ period: "pm" })}
-              >
-                ល្ងាច
-              </button>
-            </div>
-          </div>
+          <ClockPicks
+            value={time}
+            onChange={(next) => onTimeChange?.(next)}
+            hourLabel={`${label} ម៉ោង`}
+            minuteLabel={`${label} នាទី`}
+          />
         ) : null}
       </div>
     </div>
@@ -2237,70 +2160,13 @@ function TimeField({
   value: string;
   onChange: (next: string) => void;
 }) {
-  const clock = splitClock(value);
-  const hours = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
-  const minutes = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
-
-  function setPart(next: { hour12?: number; minute?: number; period?: ClockPeriod }) {
-    onChange(
-      joinClock(
-        next.hour12 ?? clock.hour12,
-        next.minute ?? clock.minute,
-        next.period ?? clock.period
-      )
-    );
-  }
-
   return (
-    <div className="event-when-picks">
-      <div className="event-time-line">
-        <select
-          className="event-time-select"
-          value={clock.hour12}
-          onChange={(e) => setPart({ hour12: Number(e.target.value) })}
-          aria-label="ម៉ោង"
-        >
-          {hours.map((h) => (
-            <option key={h} value={h}>
-              {h}
-            </option>
-          ))}
-        </select>
-        <span className="calendar-time-colon" aria-hidden>
-          :
-        </span>
-        <select
-          className="event-time-select"
-          value={clock.minute}
-          onChange={(e) => setPart({ minute: Number(e.target.value) })}
-          aria-label="នាទី"
-        >
-          {minutes.map((m) => (
-            <option key={m} value={m}>
-              {String(m).padStart(2, "0")}
-            </option>
-          ))}
-        </select>
-        <div className="event-period" role="group" aria-label="ព្រឹក ឬ ល្ងាច">
-          <button
-            type="button"
-            data-active={clock.period === "am"}
-            aria-pressed={clock.period === "am"}
-            onClick={() => setPart({ period: "am" })}
-          >
-            ព្រឹក
-          </button>
-          <button
-            type="button"
-            data-active={clock.period === "pm"}
-            aria-pressed={clock.period === "pm"}
-            onClick={() => setPart({ period: "pm" })}
-          >
-            ល្ងាច
-          </button>
-        </div>
-      </div>
-    </div>
+    <ClockPicks
+      value={value}
+      onChange={onChange}
+      hourLabel="ម៉ោង"
+      minuteLabel="នាទី"
+    />
   );
 }
 
