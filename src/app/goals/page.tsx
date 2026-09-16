@@ -7,6 +7,7 @@ import { ChevronLeft, ChevronRight, Plus, Send, Trash2 } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
 import { HydrationGate } from "@/components/HydrationGate";
 import { DatePickerField } from "@/components/DatePicker";
+import { FinanceAmountRow } from "@/components/FinanceAmountRow";
 import { Modal } from "@/components/Modal";
 import { TelegramConfigModal } from "@/components/TelegramConfigModal";
 import { useTrackingStore } from "@/lib/store";
@@ -29,6 +30,7 @@ import {
   goalTargetUsd,
   labelGoalStatus,
   normalizeGoalDates,
+  parseMoneyAmount,
   reportPeriod,
   shiftReportAnchor,
   sumGoalAmounts,
@@ -249,9 +251,9 @@ function GoalsContent() {
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
-    const target = Number(targetAmount);
+    const target = parseMoneyAmount(targetAmount);
     if (!title.trim() || !target || target <= 0) return;
-    const current = Math.max(0, Number(currentAmount) || 0);
+    const current = Math.max(0, parseMoneyAmount(currentAmount));
     const memberList = members
       .split(",")
       .map((m) => m.trim())
@@ -300,7 +302,7 @@ function GoalsContent() {
   function onContribute(e: FormEvent) {
     e.preventDefault();
     if (!contributeId) return;
-    const amount = Number(contributeAmount);
+    const amount = parseMoneyAmount(contributeAmount);
     if (!amount || amount <= 0) return;
     contributeGoal(contributeId, amount, contributeCurrency, contributeDate);
     closeContribute();
@@ -653,49 +655,22 @@ function GoalsContent() {
                 required
               />
             </label>
-            <div className="event-row finance-amount-row">
-              <span className="event-row-label">ចំនួនគោលដៅ</span>
-              <input
-                className="event-row-input"
-                type="number"
-                min={1}
-                step={1}
-                value={targetAmount}
-                onChange={(e) => setTargetAmount(e.target.value)}
-                placeholder={currency === "KHR" ? "2000000" : "500"}
-                required
-              />
-              <div className="event-period" role="group" aria-label="រូបិយប័ណ្ណ">
-                <button
-                  type="button"
-                  data-active={currency === "KHR"}
-                  aria-pressed={currency === "KHR"}
-                  onClick={() => setCurrency("KHR")}
-                >
-                  រៀល
-                </button>
-                <button
-                  type="button"
-                  data-active={currency === "USD"}
-                  aria-pressed={currency === "USD"}
-                  onClick={() => setCurrency("USD")}
-                >
-                  ដុល្លារ
-                </button>
-              </div>
-            </div>
-            <label className="event-row">
-              <span className="event-row-label">ចំនួនបច្ចុប្បន្ន</span>
-              <input
-                className="event-row-input"
-                type="number"
-                min={0}
-                step={1}
-                value={currentAmount}
-                onChange={(e) => setCurrentAmount(e.target.value)}
-                placeholder="0"
-              />
-            </label>
+            <FinanceAmountRow
+              label="ចំនួនគោលដៅ"
+              value={targetAmount}
+              onChange={setTargetAmount}
+              currency={currency}
+              onCurrencyChange={setCurrency}
+              placeholder={currency === "KHR" ? "2000000" : "500"}
+              required
+            />
+            <FinanceAmountRow
+              label="ចំនួនបច្ចុប្បន្ន"
+              value={currentAmount}
+              onChange={setCurrentAmount}
+              currency={currency}
+              placeholder="0"
+            />
             <DatePickerField
               label="ចាប់ផ្តើមគោលដៅ"
               value={startDate}
@@ -788,37 +763,15 @@ function GoalsContent() {
                 </span>
               </div>
             ) : null}
-            <div className="event-row finance-amount-row">
-              <span className="event-row-label">ចំនួន</span>
-              <input
-                className="event-row-input"
-                type="number"
-                min={1}
-                step={1}
-                value={contributeAmount}
-                onChange={(e) => setContributeAmount(e.target.value)}
-                placeholder={contributeCurrency === "USD" ? "50" : "200000"}
-                required
-              />
-              <div className="event-period" role="group" aria-label="រូបិយប័ណ្ណ">
-                <button
-                  type="button"
-                  data-active={contributeCurrency === "KHR"}
-                  aria-pressed={contributeCurrency === "KHR"}
-                  onClick={() => setContributeCurrency("KHR")}
-                >
-                  រៀល
-                </button>
-                <button
-                  type="button"
-                  data-active={contributeCurrency === "USD"}
-                  aria-pressed={contributeCurrency === "USD"}
-                  onClick={() => setContributeCurrency("USD")}
-                >
-                  ដុល្លារ
-                </button>
-              </div>
-            </div>
+            <FinanceAmountRow
+              label="ចំនួន"
+              value={contributeAmount}
+              onChange={setContributeAmount}
+              currency={contributeCurrency}
+              onCurrencyChange={setContributeCurrency}
+              placeholder={contributeCurrency === "USD" ? "50" : "200000"}
+              required
+            />
             <DatePickerField
               label="ថ្ងៃ"
               value={contributeDate}

@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown, Pencil, Plus, Trash2 } from "lucide-react";
 import { useTrackingStore } from "@/lib/store";
@@ -35,22 +35,61 @@ export function CategoryPicker({
     return source.filter((item) => item.id !== "savings");
   }, [kind, incomeCategories, expenseCategories, saveCategories]);
 
-  const currentLabel =     resolveFinanceCategoryLabel(value, [
+  const currentLabel = resolveFinanceCategoryLabel(value, [
     ...incomeCategories,
     ...expenseCategories,
     ...saveCategories,
   ]);
 
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [draftId, setDraftId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
+  const [backdropReady, setBackdropReady] = useState(false);
 
   useEffect(() => {
     if (!open) {
       setDraftId(null);
       setDraftName("");
+      setBackdropReady(false);
+      return;
     }
+    const arm = window.setTimeout(() => setBackdropReady(true), 400);
+    return () => window.clearTimeout(arm);
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const overlay = overlayRef.current;
+    const panel = panelRef.current;
+    const syncKeyboard = () => {
+      const viewport = window.visualViewport;
+      if (!overlay || !viewport) return;
+      const inset = Math.max(
+        0,
+        window.innerHeight - viewport.height - viewport.offsetTop
+      );
+      overlay.style.setProperty("--keyboard-inset", `${Math.round(inset)}px`);
+    };
+    const onFocusIn = (event: FocusEvent) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement) || !panel?.contains(target)) return;
+      window.setTimeout(() => {
+        target.scrollIntoView({ block: "center", inline: "nearest" });
+      }, 80);
+    };
+    syncKeyboard();
+    window.visualViewport?.addEventListener("resize", syncKeyboard);
+    window.visualViewport?.addEventListener("scroll", syncKeyboard);
+    panel?.addEventListener("focusin", onFocusIn);
+    return () => {
+      overlay?.style.removeProperty("--keyboard-inset");
+      window.visualViewport?.removeEventListener("resize", syncKeyboard);
+      window.visualViewport?.removeEventListener("scroll", syncKeyboard);
+      panel?.removeEventListener("focusin", onFocusIn);
+    };
+  }, [open, draftId]);
 
   useEffect(() => {
     if (items.length && !items.some((item) => item.id === value)) {
@@ -68,8 +107,7 @@ export function CategoryPicker({
     setDraftName(name);
   }
 
-  function saveDraft(e?: FormEvent) {
-    e?.preventDefault();
+  function saveDraft() {
     const name = draftName.trim();
     if (!name) return;
     if (draftId === "new") {
@@ -107,18 +145,25 @@ export function CategoryPicker({
       </button>
       {open
         ? createPortal(
-            <div className="modal-overlay category-picker-overlay">
+            <div ref={overlayRef} className="modal-overlay category-picker-overlay">
               <button
                 type="button"
-                className="absolute inset-0 bg-ink/35 backdrop-blur-[2px]"
+                className="category-picker-backdrop"
                 aria-label="បោះបង់"
+                style={{ pointerEvents: backdropReady ? "auto" : "none" }}
                 onClick={() => setOpen(false)}
               />
               <div
+                ref={panelRef}
                 className="surface-raised category-picker-panel relative z-10 animate-rise"
                 role="dialog"
                 aria-modal="true"
                 aria-label={label}
+                onClick={(e) => e.stopPropagation()}
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
               >
                 <div className="category-picker-head">
                   <h2>{label}</h2>
@@ -132,10 +177,17 @@ export function CategoryPicker({
                 </div>
 
                 {draftId ? (
-                  <form className="category-picker-editor" onSubmit={saveDraft}>
+                  <div className="category-picker-editor">
                     <input
                       value={draftName}
                       onChange={(e) => setDraftName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          saveDraft();
+                        }
+                      }}
                       placeholder="ឈ្មោះ"
                       autoFocus
                     />
@@ -150,11 +202,19 @@ export function CategoryPicker({
                       >
                         បោះបង់
                       </button>
-                      <button type="submit" className="btn btn-primary">
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          saveDraft();
+                        }}
+                      >
                         រក្សាទុក
                       </button>
                     </div>
-                  </form>
+                  </div>
                 ) : null}
 
                 <ul className="category-picker-list">

@@ -80,11 +80,14 @@ export async function apiLoadWorkspace() {
 }
 
 export async function apiSaveWorkspace(workspace: unknown) {
-  await fetch("/api/workspace", {
+  const res = await fetch("/api/workspace", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(workspace),
   });
+  if (!res.ok) {
+    console.error("workspace save failed", res.status);
+  }
 }
 
 export async function apiPatchProfile(patch: Partial<UserProfile>) {

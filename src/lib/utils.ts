@@ -154,6 +154,68 @@ export function formatMoneyPair(usd: number): { khr: string; usd: string } {
   };
 }
 
+const KHMER_AMOUNT_SCALES = [
+  { unit: 1_000_000_000, name: "ពាន់លាន", place: "ខ្ទង់ពាន់លាន" },
+  { unit: 10_000_000, name: "កោដិ", place: "ខ្ទង់កោដិ" },
+  { unit: 1_000_000, name: "លាន", place: "ខ្ទង់លាន" },
+  { unit: 100_000, name: "សែន", place: "ខ្ទង់សែន" },
+  { unit: 10_000, name: "ម៉ឺន", place: "ខ្ទង់ម៉ឺន" },
+  { unit: 1_000, name: "ពាន់", place: "ខ្ទង់ពាន់" },
+  { unit: 100, name: "រយ", place: "ខ្ទង់រយ" },
+] as const;
+
+function formatKhmerCount(value: number): string {
+  return new Intl.NumberFormat("km-KH", { maximumFractionDigits: 0 }).format(
+    value
+  );
+}
+
+/** Live riel reading: ខ្ទង់ពាន់, ខ្ទង់ម៉ឺន, ខ្ទង់សែន, ខ្ទង់លាន, … */
+export function describeKhmerRiel(amount: string | number): string {
+  const n = Math.floor(Math.abs(parseMoneyAmount(amount)));
+  if (!Number.isFinite(n) || n < 100) return "";
+
+  const parts: string[] = [];
+  let rest = n;
+  let place = "";
+  for (const scale of KHMER_AMOUNT_SCALES) {
+    if (rest < scale.unit) continue;
+    const count = Math.floor(rest / scale.unit);
+    if (!place) place = scale.place;
+    parts.push(`${formatKhmerCount(count)} ${scale.name}`);
+    rest %= scale.unit;
+  }
+  if (rest > 0) parts.push(formatKhmerCount(rest));
+  if (!place || !parts.length) return "";
+  return `${place} · ${parts.join(" ")}`;
+}
+
+/** One-line hint: ខ្ទង់លាន · 7 លាន */
+export function describeKhmerRielCompact(amount: string | number): string {
+  const n = Math.floor(Math.abs(parseMoneyAmount(amount)));
+  if (!Number.isFinite(n) || n < 100) return "";
+  const scale = KHMER_AMOUNT_SCALES.find((item) => n >= item.unit);
+  if (!scale) return "";
+  const count = Math.floor(n / scale.unit);
+  return `${scale.place} · ${formatKhmerCount(count)} ${scale.name}`;
+}
+
+export function parseMoneyDigits(value: string | number): string {
+  return String(value ?? "").replace(/[^\d]/g, "");
+}
+
+export function formatMoneyGrouped(value: string | number): string {
+  const digits = parseMoneyDigits(value).replace(/^0+(?=\d)/, "");
+  if (!digits) return "";
+  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+export function parseMoneyAmount(value: string | number): number {
+  const digits = parseMoneyDigits(value);
+  if (!digits) return 0;
+  return Number(digits);
+}
+
 export function goalCurrentByCurrency(goal: Pick<
   FamilyGoal,
   "currency" | "currentAmount" | "currentKhr" | "currentUsd"

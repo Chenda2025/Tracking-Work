@@ -457,15 +457,21 @@ let bootstrapping = false;
 let bootstrapPromise: Promise<void> | null = null;
 let saveTimer: number | undefined;
 
+function persistWorkspaceNow() {
+  if (bootstrapping || typeof window === "undefined") return;
+  const current = useTrackingStore.getState();
+  if (!current.signedIn || !current.hydrated) return;
+  window.clearTimeout(saveTimer);
+  void apiSaveWorkspace(snapshotWorkspace(current));
+}
+
 function queueWorkspaceSave() {
   if (bootstrapping || typeof window === "undefined") return;
   const state = useTrackingStore.getState();
   if (!state.signedIn || !state.hydrated) return;
   window.clearTimeout(saveTimer);
   saveTimer = window.setTimeout(() => {
-    const current = useTrackingStore.getState();
-    if (!current.signedIn || !current.hydrated) return;
-    void apiSaveWorkspace(snapshotWorkspace(current));
+    persistWorkspaceNow();
   }, 500);
 }
 
@@ -890,6 +896,7 @@ export const useTrackingStore = create<TrackingStore>()((set, get) => ({
           label: name,
         };
         set({ [key]: [...current, option] });
+        persistWorkspaceNow();
         return option.id;
       },
 
@@ -904,6 +911,7 @@ export const useTrackingStore = create<TrackingStore>()((set, get) => ({
             item.id === id ? { ...item, label: name } : item
           ),
         });
+        persistWorkspaceNow();
         return true;
       },
 
@@ -923,6 +931,7 @@ export const useTrackingStore = create<TrackingStore>()((set, get) => ({
               : item
           ),
         });
+        persistWorkspaceNow();
         return true;
       },
 

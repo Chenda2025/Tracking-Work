@@ -15,6 +15,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { HydrationGate } from "@/components/HydrationGate";
 import { CategoryPicker } from "@/components/CategoryPicker";
 import { DatePickerField } from "@/components/DatePicker";
+import { FinanceAmountRow } from "@/components/FinanceAmountRow";
 import { Modal } from "@/components/Modal";
 import { TelegramConfigModal } from "@/components/TelegramConfigModal";
 import { useTrackingStore } from "@/lib/store";
@@ -36,6 +37,7 @@ import {
   formatMonth,
   isSavingsTx,
   labelTransactionType,
+  parseMoneyAmount,
   reportPeriod,
   resolveFinanceCategoryLabel,
   shiftMonth,
@@ -354,7 +356,8 @@ function FinanceContent() {
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
-    const value = Number(amount);
+    if (e.target !== e.currentTarget) return;
+    const value = parseMoneyAmount(amount);
     if (!value || value <= 0) return;
     const nextType: TransactionType = type === "income" ? "income" : "expense";
     if (editingId) {
@@ -740,39 +743,15 @@ function FinanceContent() {
                 </button>
               </div>
             </div>
-            <div className="event-row finance-amount-row">
-              <span className="event-row-label">ចំនួន</span>
-              <input
-                className="event-row-input"
-                type="number"
-                min={1}
-                step={1}
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                placeholder={currency === "KHR" ? "20000" : "50"}
-                required
-              />
-              <div className="event-period" role="group" aria-label="រូបិយប័ណ្ណ">
-                <button
-                  type="button"
-                  data-active={currency === "KHR"}
-                  aria-pressed={currency === "KHR"}
-                  onClick={() => setCurrency("KHR")}
-                >
-                  រៀល
-                
-                </button>
-                <button
-                  type="button"
-                  data-active={currency === "USD"}
-                  aria-pressed={currency === "USD"}
-                  onClick={() => setCurrency("USD")}
-                >
-                  ដុល្លារ
-                
-                </button>
-              </div>
-            </div>
+            <FinanceAmountRow
+              label="ចំនួន"
+              value={amount}
+              onChange={setAmount}
+              currency={currency}
+              onCurrencyChange={setCurrency}
+              placeholder={currency === "KHR" ? "20000" : "50"}
+              required
+            />
             <CategoryPicker
               label="ប្រភេទលុយ"
               kind={type === "income" ? "income" : "expense"}
