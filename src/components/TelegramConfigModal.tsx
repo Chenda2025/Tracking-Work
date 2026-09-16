@@ -186,6 +186,11 @@ export function TelegramConfigModal({
     <Modal open={open} title="ការកំណត់ Telegram" onClose={onClose} size="sm">
       <form className="telegram-config" onSubmit={save}>
         <section className="event-card">
+          <p className="telegram-config-lead">
+            ព្រឹក និងល្ងាចផ្ញើសង្ខេបប្រចាំថ្ងៃ។ ព្រឹត្តិការណ៍ និងការរំលឹកផ្ញើពេលដល់ម៉ោង
+            ទោះមិនបើកកម្មវិធី។ បើដាក់ជូនដំណឹង ១០ ឬ ១៥ នាទីមុន នឹងផ្ញើមុនម៉ោងផង។
+            ចុច ✅ ក្នុង Telegram ដើម្បីសម្គាល់រួចក្នុងប្រព័ន្ធ។
+          </p>
           <label className="event-row event-row-switch">
             <span className="event-row-label">បើកការផ្ញើ</span>
             <input

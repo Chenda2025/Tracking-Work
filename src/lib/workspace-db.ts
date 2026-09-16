@@ -38,6 +38,61 @@ function emptyTelegram(): TelegramSettings {
   };
 }
 
+function laterDate(a?: string | null, b?: string | null) {
+  const x = (a ?? "").trim();
+  const y = (b ?? "").trim();
+  return x > y ? x : y;
+}
+
+function mergeCompletion(
+  incomingDone: boolean,
+  incomingAt?: string | null,
+  existing?: { completed?: boolean; completed_at?: string | null }
+) {
+  if (!existing) {
+    return {
+      completed: incomingDone,
+      completedAt: incomingAt ?? null,
+    };
+  }
+  const remoteAt = Date.parse(existing.completed_at || "") || 0;
+  const localAt = Date.parse(incomingAt || "") || 0;
+  if (remoteAt > localAt) {
+    return {
+      completed: Boolean(existing.completed),
+      completedAt: existing.completed_at ?? null,
+    };
+  }
+  return {
+    completed: incomingDone,
+    completedAt: incomingAt ?? existing.completed_at ?? null,
+  };
+}
+
+function mergeNoticeIds(
+  prevDate?: string | null,
+  prevIds?: unknown,
+  nextDate?: string | null,
+  nextIds?: unknown
+) {
+  const pDate = (prevDate ?? "").trim();
+  const nDate = (nextDate ?? "").trim();
+  const asIds = (value: unknown) =>
+    Array.isArray(value)
+      ? value.filter(
+          (id): id is string => typeof id === "string" && id.length > 0
+        )
+      : [];
+  const pIds = asIds(prevIds);
+  const nIds = asIds(nextIds);
+  if (pDate && nDate && pDate === nDate) {
+    return { date: nDate, ids: [...new Set([...pIds, ...nIds])] };
+  }
+  if (nDate > pDate) return { date: nDate, ids: nIds };
+  if (pDate > nDate) return { date: pDate, ids: pIds };
+  return { date: nDate || pDate, ids: [...new Set([...pIds, ...nIds])] };
+}
+
 export function isWorkspaceEmpty(data: WorkspacePayload) {
   return (
     data.activities.length === 0 &&
@@ -176,6 +231,7 @@ export async function loadWorkspace(userId: string): Promise<WorkspacePayload> {
       dueDate: row.due_date,
       dueTime: row.due_time ?? "",
       completed: Boolean(row.completed),
+      completedAt: row.completed_at ?? undefined,
       repeat: row.repeat_days ?? [],
       alert: row.alert ?? undefined,
       createdAt: row.created_at,
@@ -207,6 +263,32 @@ async function replaceUserRows(
 export async function saveWorkspace(userId: string, data: WorkspacePayload) {
   await ensureSchema();
   await withTransaction(async (client) => {
+    const existingTg = await client.query(
+      `SELECT last_auto_sent_date, last_evening_sent_date,
+              auto_sent_event_date, auto_sent_event_ids
+       FROM telegram_settings WHERE user_id = $1`,
+      [userId]
+    );
+    const existingEvents = await client.query<{
+      id: string;
+      completed: boolean;
+      completed_at: string | null;
+    }>(
+      `SELECT id, completed, completed_at FROM calendar_events WHERE user_id = $1`,
+      [userId]
+    );
+    const existingReminders = await client.query<{
+      id: string;
+      completed: boolean;
+      completed_at: string | null;
+    }>(
+      `SELECT id, completed, completed_at FROM reminders WHERE user_id = $1`,
+      [userId]
+    );
+    const existingActivities = await client.query<{
+      id: string;
+      status: string;
+    }>(`SELECT id, status FROM activities WHERE user_id = $1`, [userId]);
     await replaceUserRows(client, "goal_contributions", userId);
     await replaceUserRows(client, "activities", userId);
     await replaceUserRows(client, "activity_folders", userId);
@@ -233,6 +315,11 @@ export async function saveWorkspace(userId: string, data: WorkspacePayload) {
     }
 
     for (const item of data.activities ?? []) {
+      const prevActivity = existingActivities.rows.find((row) => row.id === item.id);
+      const status =
+        item.status === "done" || prevActivity?.status === "done"
+          ? "done"
+          : item.status;
       await client.query(
         `INSERT INTO activities (
            id, user_id, title, location, notes, category, folder_id, status,
@@ -246,7 +333,7 @@ export async function saveWorkspace(userId: string, data: WorkspacePayload) {
           item.notes ?? "",
           item.category,
           item.folderId ?? null,
-          item.status,
+          status,
           item.date,
           item.startTime ?? "",
           item.durationMinutes ?? 0,
@@ -331,6 +418,11 @@ export async function saveWorkspace(userId: string, data: WorkspacePayload) {
     }
 
     for (const item of data.events ?? []) {
+      const done = mergeCompletion(
+        Boolean(item.completed),
+        item.completedAt,
+        existingEvents.rows.find((row) => row.id === item.id)
+      );
       await client.query(
         `INSERT INTO calendar_events (
            id, user_id, title, location, notes, date, end_date, start_time,
@@ -354,19 +446,24 @@ export async function saveWorkspace(userId: string, data: WorkspacePayload) {
           item.repeatFrequency,
           JSON.stringify(item.endRepeat ?? { type: "never" }),
           item.alert,
-          Boolean(item.completed),
-          item.completedAt ?? null,
+          done.completed,
+          done.completedAt,
           item.createdAt,
         ]
       );
     }
 
     for (const item of data.reminders ?? []) {
+      const done = mergeCompletion(
+        Boolean(item.completed),
+        item.completedAt,
+        existingReminders.rows.find((row) => row.id === item.id)
+      );
       await client.query(
         `INSERT INTO reminders (
-           id, user_id, title, notes, due_date, due_time, completed,
+           id, user_id, title, notes, due_date, due_time, completed, completed_at,
            repeat_days, alert, created_at
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
         [
           item.id,
           userId,
@@ -374,7 +471,8 @@ export async function saveWorkspace(userId: string, data: WorkspacePayload) {
           item.notes ?? "",
           item.dueDate,
           item.dueTime ?? "",
-          Boolean(item.completed),
+          done.completed,
+          done.completedAt,
           JSON.stringify(item.repeat ?? []),
           item.alert ?? null,
           item.createdAt,
@@ -383,6 +481,13 @@ export async function saveWorkspace(userId: string, data: WorkspacePayload) {
     }
 
     const tg = data.telegramSettings ?? emptyTelegram();
+    const prev = existingTg.rows[0];
+    const mergedNotices = mergeNoticeIds(
+      prev?.auto_sent_event_date,
+      prev?.auto_sent_event_ids,
+      tg.autoSentEventDate,
+      tg.autoSentEventIds
+    );
     await client.query(
       `INSERT INTO telegram_settings (
          user_id, bot_token, chat_id, enabled, send_time, evening_time,
@@ -396,10 +501,10 @@ export async function saveWorkspace(userId: string, data: WorkspacePayload) {
         Boolean(tg.enabled),
         tg.sendTime ?? "07:00",
         tg.eveningTime ?? "18:00",
-        tg.lastAutoSentDate ?? "",
-        tg.lastEveningSentDate ?? "",
-        tg.autoSentEventDate ?? "",
-        JSON.stringify(tg.autoSentEventIds ?? []),
+        laterDate(prev?.last_auto_sent_date, tg.lastAutoSentDate),
+        laterDate(prev?.last_evening_sent_date, tg.lastEveningSentDate),
+        mergedNotices.date,
+        JSON.stringify(mergedNotices.ids),
       ]
     );
   });

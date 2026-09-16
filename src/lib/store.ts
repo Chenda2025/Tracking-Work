@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import {
+  apiLoadWorkspace,
   apiLogin,
   apiLogout,
   apiMe,
@@ -253,6 +254,7 @@ function normalizeWorkspace(
       notes: r.notes ?? "",
       dueTime: r.dueTime ?? "",
       completed: Boolean(r.completed),
+      completedAt: r.completedAt,
       repeat: normalizeRepeatDays(
         r.repeat as ActivityRepeat[] | ActivityRepeat | "none" | undefined
       ),
@@ -338,6 +340,11 @@ interface TrackingStore {
   setProfile: (patch: Partial<UserProfile>) => void;
   clearProfile: () => void;
   bootstrap: () => Promise<void>;
+  applyRemoteCompletions: (remote: {
+    events?: CalendarEvent[];
+    reminders?: Reminder[];
+    activities?: Activity[];
+  }) => void;
   login: (username: string, password: string) => Promise<string | null>;
   signUp: (input: {
     name: string;
@@ -521,6 +528,10 @@ function isWorkspaceBare(data: WorkspaceData) {
   );
 }
 
+function newerCompletion(localAt?: string, remoteAt?: string) {
+  return (Date.parse(remoteAt || "") || 0) > (Date.parse(localAt || "") || 0);
+}
+
 export const useTrackingStore = create<TrackingStore>()((set, get) => ({
       activities: [],
       transactions: [],
@@ -572,6 +583,48 @@ export const useTrackingStore = create<TrackingStore>()((set, get) => ({
           }
         })();
         return bootstrapPromise;
+      },
+      applyRemoteCompletions: (remote) => {
+        const current = get();
+        bootstrapping = true;
+        try {
+          set({
+            events: current.events.map((local) => {
+              const server = remote.events?.find((item) => item.id === local.id);
+              if (!server) return local;
+              if (newerCompletion(local.completedAt, server.completedAt)) {
+                return {
+                  ...local,
+                  completed: Boolean(server.completed),
+                  completedAt: server.completedAt,
+                };
+              }
+              return local;
+            }),
+            reminders: current.reminders.map((local) => {
+              const server = remote.reminders?.find((item) => item.id === local.id);
+              if (!server) return local;
+              if (newerCompletion(local.completedAt, server.completedAt)) {
+                return {
+                  ...local,
+                  completed: Boolean(server.completed),
+                  completedAt: server.completedAt,
+                };
+              }
+              return local;
+            }),
+            activities: current.activities.map((local) => {
+              const server = remote.activities?.find((item) => item.id === local.id);
+              if (!server) return local;
+              if (server.status === "done" && local.status !== "done") {
+                return { ...local, status: "done" };
+              }
+              return local;
+            }),
+          });
+        } finally {
+          bootstrapping = false;
+        }
       },
       setProfile: (patch) => {
         const current = get().profile;
@@ -1058,13 +1111,14 @@ export const useTrackingStore = create<TrackingStore>()((set, get) => ({
       },
 
       setEventCompleted: (id, completed) => {
+        const stamp = new Date().toISOString();
         set({
           events: get().events.map((item) =>
             item.id === id
               ? {
                   ...item,
                   completed,
-                  completedAt: completed ? new Date().toISOString() : undefined,
+                  completedAt: stamp,
                 }
               : item
           ),
@@ -1099,9 +1153,16 @@ export const useTrackingStore = create<TrackingStore>()((set, get) => ({
       },
 
       toggleReminder: (id) => {
+        const stamp = new Date().toISOString();
         set({
           reminders: get().reminders.map((item) =>
-            item.id === id ? { ...item, completed: !item.completed } : item
+            item.id === id
+              ? {
+                  ...item,
+                  completed: !item.completed,
+                  completedAt: stamp,
+                }
+              : item
           ),
         });
       },

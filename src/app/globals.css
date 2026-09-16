@@ -1158,6 +1158,19 @@ textarea {
   margin-bottom: 0.55rem;
 }
 
+.dash-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.dash-head-actions .toolbar-send {
+  height: 2.1rem;
+  min-width: 2.1rem;
+  padding: 0 0.5rem;
+  border-radius: 11px;
+}
+
 .dash .section-title {
   font-size: 1.02rem;
 }

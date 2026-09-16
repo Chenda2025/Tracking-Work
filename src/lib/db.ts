@@ -120,6 +120,7 @@ CREATE TABLE IF NOT EXISTS reminders (
   due_date TEXT NOT NULL,
   due_time TEXT,
   completed BOOLEAN NOT NULL DEFAULT false,
+  completed_at TEXT,
   repeat_days JSONB,
   alert TEXT,
   created_at TEXT NOT NULL,
@@ -138,6 +139,21 @@ CREATE TABLE IF NOT EXISTS telegram_settings (
   auto_sent_event_date TEXT,
   auto_sent_event_ids JSONB NOT NULL DEFAULT '[]'
 );
+
+CREATE TABLE IF NOT EXISTS telegram_notice_log (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  notice_key TEXT NOT NULL,
+  sent_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, notice_key)
+);
+
+CREATE TABLE IF NOT EXISTS telegram_bot_cursors (
+  token_hash TEXT PRIMARY KEY,
+  last_update_id BIGINT NOT NULL DEFAULT 0,
+  locked_at TIMESTAMPTZ
+);
+
+ALTER TABLE reminders ADD COLUMN IF NOT EXISTS completed_at TEXT;
 `;
 
 let pool: Pool | null = null;
@@ -171,6 +187,9 @@ export async function ensureSchema() {
       });
   }
   await schemaReady;
+  await getPool().query(
+    `ALTER TABLE reminders ADD COLUMN IF NOT EXISTS completed_at TEXT`
+  );
 }
 
 export async function withTransaction<T>(

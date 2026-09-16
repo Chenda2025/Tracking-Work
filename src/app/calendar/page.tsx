@@ -33,6 +33,7 @@ import { DoneExportModal } from "@/components/DoneExportModal";
 import { EmptyState } from "@/components/EmptyState";
 import { HydrationGate } from "@/components/HydrationGate";
 import { Modal } from "@/components/Modal";
+import { SendTodayTelegramButton } from "@/components/SendTodayTelegramButton";
 import { useTrackingStore } from "@/lib/store";
 import type {
   ActivityRepeat,
@@ -705,7 +706,9 @@ function CalendarContent() {
               </button>
             </div>
           ) : (
-            <button
+            <>
+              <SendTodayTelegramButton compact />
+              <button
               type="button"
               className="toolbar-add"
               aria-label="បន្ថែម"
@@ -713,6 +716,7 @@ function CalendarContent() {
             >
               <Plus size={18} />
             </button>
+            </>
           )}
         </div>
       </div>

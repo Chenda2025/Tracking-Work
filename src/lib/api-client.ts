@@ -69,6 +69,16 @@ export async function apiMe() {
   return (await res.json()) as AuthPayload & { signedIn: boolean };
 }
 
+export async function apiLoadWorkspace() {
+  const res = await fetch("/api/workspace", { cache: "no-store" });
+  if (!res.ok) return null;
+  return (await res.json()) as {
+    events?: unknown[];
+    reminders?: unknown[];
+    activities?: unknown[];
+  };
+}
+
 export async function apiSaveWorkspace(workspace: unknown) {
   await fetch("/api/workspace", {
     method: "PUT",

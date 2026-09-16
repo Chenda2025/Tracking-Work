@@ -148,6 +148,7 @@ export type EventAlert =
   | "none"
   | "at_time"
   | "5m"
+  | "10m"
   | "15m"
   | "30m"
   | "1h"
@@ -163,6 +164,7 @@ export interface Reminder {
   dueDate: string; // YYYY-MM-DD
   dueTime?: string; // HH:mm 24h optional
   completed: boolean;
+  completedAt?: string;
   repeat?: ActivityRepeat[];
   alert?: EventAlert;
   createdAt: string;

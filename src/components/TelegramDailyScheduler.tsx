@@ -1,19 +1,11 @@
 "use client";
 
 import { useEffect } from "react";
+import { apiLoadWorkspace } from "@/lib/api-client";
 import { useTrackingStore } from "@/lib/store";
-import {
-  buildEventReport,
-  buildMorningDigest,
-  canAutoSendSlot,
-  dueTodayEvents,
-  msUntilNextEventReport,
-  sendTelegramMessage,
-  sentEventIdsForToday,
-} from "@/lib/telegramDaily";
+import { msUntilNextEventReport, sentEventIdsForToday } from "@/lib/telegramDaily";
 import { normalizeSendTime, todayISO } from "@/lib/utils";
-
-let inFlight: Promise<void> | null = null;
+import type { Activity, CalendarEvent, Reminder } from "@/lib/types";
 
 function msUntilSendTime(sendTime: string, fallback = "07:00"): number {
   const [hour, minute] = normalizeSendTime(sendTime, fallback)
@@ -25,102 +17,78 @@ function msUntilSendTime(sendTime: string, fallback = "07:00"): number {
   return Math.max(0, target.getTime() - now.getTime());
 }
 
-async function sendDigestIfDue(slot: "morning" | "evening") {
+async function tick() {
   const state = useTrackingStore.getState();
-  if (!canAutoSendSlot(state.telegramSettings, slot)) return;
-  const { botToken, chatId } = state.telegramSettings;
-  const sentDate = todayISO();
-  await sendTelegramMessage({
-    botToken,
-    chatId,
-    text: buildMorningDigest({
-      events: state.events,
-      reminders: state.reminders,
-      activities: state.activities,
-      period: slot,
-      ownerName: state.profile?.name,
-    }),
-  });
-  useTrackingStore.getState().setTelegramSettings(
-    slot === "morning"
-      ? { lastAutoSentDate: sentDate }
-      : { lastEveningSentDate: sentDate }
-  );
-}
-
-async function sendDueEventReports() {
-  const state = useTrackingStore.getState();
-  const settings = state.telegramSettings;
-  if (!settings.enabled) return;
-  const token = settings.botToken.trim();
-  const chatId = settings.chatId.trim();
-  if (!token || !chatId) return;
-
-  const today = todayISO();
-  let sentIds = sentEventIdsForToday(settings);
-  const due = dueTodayEvents(state.events, sentIds);
-  for (const item of due) {
-    await sendTelegramMessage({
-      botToken: token,
-      chatId,
-      text: buildEventReport(item, state.profile?.name),
-    });
-    sentIds = [...sentIds, item.id];
-    useTrackingStore.getState().setTelegramSettings({
-      autoSentEventDate: today,
-      autoSentEventIds: sentIds,
-    });
+  if (!state.hydrated || !state.signedIn) return;
+  try {
+    await fetch("/api/telegram/inbox", { method: "POST" });
+    await fetch("/api/telegram/dispatch", { method: "POST" });
+    const remote = await apiLoadWorkspace();
+    if (remote) {
+      useTrackingStore.getState().applyRemoteCompletions({
+        events: remote.events as CalendarEvent[] | undefined,
+        reminders: remote.reminders as Reminder[] | undefined,
+        activities: remote.activities as Activity[] | undefined,
+      });
+    }
+  } catch {
+    // retry on the next timer
   }
 }
 
-async function tick() {
+async function listenForTelegramTaps() {
   const state = useTrackingStore.getState();
-  if (!state.hydrated) return;
-  if (inFlight) return;
-  inFlight = (async () => {
-    try {
-      await sendDigestIfDue("morning");
-      await sendDigestIfDue("evening");
-      await sendDueEventReports();
-    } catch {
-      // retry on the next timer
+  if (!state.hydrated || !state.signedIn) return;
+  if (!state.telegramSettings.botToken.trim() || !state.telegramSettings.chatId.trim()) {
+    return;
+  }
+  try {
+    await fetch("/api/telegram/inbox", { method: "POST" });
+    const remote = await apiLoadWorkspace();
+    if (remote) {
+      useTrackingStore.getState().applyRemoteCompletions({
+        events: remote.events as CalendarEvent[] | undefined,
+        reminders: remote.reminders as Reminder[] | undefined,
+        activities: remote.activities as Activity[] | undefined,
+      });
     }
-  })().finally(() => {
-    inFlight = null;
-  });
-  await inFlight;
+  } catch {
+    // retry on the next timer
+  }
 }
 
 export function TelegramDailyScheduler() {
   const hydrated = useTrackingStore((s) => s.hydrated);
+  const signedIn = useTrackingStore((s) => s.signedIn);
   const enabled = useTrackingStore((s) => s.telegramSettings.enabled);
   const botToken = useTrackingStore((s) => s.telegramSettings.botToken);
   const chatId = useTrackingStore((s) => s.telegramSettings.chatId);
   const sendTime = useTrackingStore((s) => s.telegramSettings.sendTime);
   const eveningTime = useTrackingStore((s) => s.telegramSettings.eveningTime);
-  const lastAutoSentDate = useTrackingStore(
-    (s) => s.telegramSettings.lastAutoSentDate
-  );
-  const lastEveningSentDate = useTrackingStore(
-    (s) => s.telegramSettings.lastEveningSentDate
-  );
-  const autoSentEventDate = useTrackingStore(
-    (s) => s.telegramSettings.autoSentEventDate
-  );
-  const autoSentEventIds = useTrackingStore(
-    (s) => s.telegramSettings.autoSentEventIds
-  );
   const eventStamp = useTrackingStore((s) =>
-    s.events
-      .map(
+    [
+      ...s.events.map(
         (item) =>
-          `${item.id}:${item.date}:${item.endDate}:${item.startTime}:${item.allDay}:${item.completed}:${item.repeatFrequency}`
-      )
-      .join("|")
+          `${item.id}:${item.date}:${item.endDate}:${item.startTime}:${item.allDay}:${item.completed}:${item.alert}:${item.repeatFrequency}`
+      ),
+      ...s.reminders.map(
+        (item) =>
+          `${item.id}:${item.dueDate}:${item.dueTime}:${item.completed}:${item.alert}`
+      ),
+    ].join("|")
   );
 
   useEffect(() => {
-    if (!hydrated || !enabled || !botToken.trim() || !chatId.trim()) return;
+    if (!hydrated || !signedIn) return;
+    void listenForTelegramTaps();
+    const listen = window.setInterval(() => void listenForTelegramTaps(), 4_000);
+    return () => window.clearInterval(listen);
+  }, [hydrated, signedIn, botToken, chatId]);
+
+  useEffect(() => {
+    if (!hydrated || !signedIn || !enabled || !botToken.trim() || !chatId.trim()) {
+      return;
+    }
 
     void tick();
 
@@ -135,7 +103,9 @@ export function TelegramDailyScheduler() {
     }
     const nextEventWait = msUntilNextEventReport(
       state.events,
-      sentEventIdsForToday(state.telegramSettings)
+      sentEventIdsForToday(state.telegramSettings),
+      new Date(),
+      state.reminders
     );
     if (nextEventWait > 0) waits.push(nextEventWait + 400);
 
@@ -153,15 +123,12 @@ export function TelegramDailyScheduler() {
     };
   }, [
     hydrated,
+    signedIn,
     enabled,
     botToken,
     chatId,
     sendTime,
     eveningTime,
-    lastAutoSentDate,
-    lastEveningSentDate,
-    autoSentEventDate,
-    autoSentEventIds,
     eventStamp,
   ]);
 
