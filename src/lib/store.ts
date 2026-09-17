@@ -57,6 +57,7 @@ import {
   normalizeFinanceCategories,
 } from "./utils";
 import { buildDemoFinanceTransactions } from "./seedFinance";
+import { mergeDemoWorkEvents } from "./seedWork";
 
 function catalogKey(
   kind: FinanceCatalogKind
@@ -224,31 +225,33 @@ function normalizeWorkspace(
       ...f,
       parentId: f.parentId ?? null,
     })),
-    events: (p.events ?? []).map((e) => {
-      const date = e.date || todayISO();
-      const legacyDays = normalizeRepeatDays(
-        e.repeat as ActivityRepeat[] | ActivityRepeat | "none" | undefined
-      );
-      return {
-        ...e,
-        location: e.location ?? "",
-        notes: e.notes ?? "",
-        allDay: Boolean(e.allDay),
-        endDate: e.endDate && e.endDate >= date ? e.endDate : date,
-        startTime: e.startTime ?? "",
-        endTime: e.endTime ?? "",
-        folderId: e.folderId ?? null,
-        repeat: legacyDays,
-        travelTime: normalizeEventTravelTime(e.travelTime),
-        repeatFrequency: normalizeEventRepeatFrequency(
-          e.repeatFrequency ?? (legacyDays.length ? "weekly" : "never")
-        ),
-        endRepeat: normalizeEventEndRepeat(e.endRepeat, date),
-        alert: normalizeEventAlert(e.alert),
-        completed: Boolean(e.completed),
-        completedAt: e.completedAt,
-      };
-    }),
+    events: mergeDemoWorkEvents(
+      (p.events ?? []).map((e) => {
+        const date = e.date || todayISO();
+        const legacyDays = normalizeRepeatDays(
+          e.repeat as ActivityRepeat[] | ActivityRepeat | "none" | undefined
+        );
+        return {
+          ...e,
+          location: e.location ?? "",
+          notes: e.notes ?? "",
+          allDay: Boolean(e.allDay),
+          endDate: e.endDate && e.endDate >= date ? e.endDate : date,
+          startTime: e.startTime ?? "",
+          endTime: e.endTime ?? "",
+          folderId: e.folderId ?? null,
+          repeat: legacyDays,
+          travelTime: normalizeEventTravelTime(e.travelTime),
+          repeatFrequency: normalizeEventRepeatFrequency(
+            e.repeatFrequency ?? (legacyDays.length ? "weekly" : "never")
+          ),
+          endRepeat: normalizeEventEndRepeat(e.endRepeat, date),
+          alert: normalizeEventAlert(e.alert),
+          completed: Boolean(e.completed),
+          completedAt: e.completedAt,
+        };
+      })
+    ),
     reminders: (p.reminders ?? []).map((r) => ({
       ...r,
       notes: r.notes ?? "",
@@ -576,6 +579,16 @@ export const useTrackingStore = create<TrackingStore>()((set, get) => ({
               session.workspace as Partial<WorkspaceData>
             );
             set({ hydrated: true });
+            const remoteEvents = (
+              session.workspace as { events?: { id?: string }[] }
+            ).events;
+            const alreadySeeded = (remoteEvents ?? []).some((item) =>
+              String(item.id).startsWith("demo-work-")
+            );
+            if (!alreadySeeded) {
+              bootstrapping = false;
+              persistWorkspaceNow();
+            }
           } catch {
             set({
               ...emptyWorkspace(),

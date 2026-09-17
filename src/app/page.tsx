@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { ArrowRight, CalendarDays, Goal } from "lucide-react";
 import { HydrationGate } from "@/components/HydrationGate";
+import { WorkProgressChart } from "@/components/WorkProgressChart";
 import { useTrackingStore } from "@/lib/store";
 import {
   filterThisMonth,
@@ -18,6 +19,7 @@ import {
   todayISO,
   eventsForDate,
   remindersForDate,
+  workProgressForDate,
 } from "@/lib/utils";
 
 export default function DashboardPage() {
@@ -53,6 +55,7 @@ function DashboardContent() {
     .sort((a, b) => goalProgress(b) - goalProgress(a))
     .slice(0, 4);
   const todayCount = todayEvents.length + todayReminders.length;
+  const todayWork = workProgressForDate(events, reminders, today);
 
   return (
     <div className="page dash">
@@ -110,6 +113,12 @@ function DashboardContent() {
           <p className="dash-kpi-hint">បានបញ្ចប់ {doneGoals}</p>
         </Link>
       </div>
+
+      <WorkProgressChart
+        title="ការងារថ្ងៃនេះ"
+        done={todayWork.done}
+        remaining={todayWork.remaining}
+      />
 
       <div className="dash-panels">
         <section className="surface dash-panel">

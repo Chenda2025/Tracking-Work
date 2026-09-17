@@ -557,6 +557,20 @@ export function remindersForDate(reminders: Reminder[], dateISO: string): Remind
     });
 }
 
+export function workProgressForDate(
+  events: CalendarEvent[],
+  reminders: Reminder[],
+  dateISO: string
+): { done: number; remaining: number; total: number } {
+  const dayEvents = eventsForDate(events, dateISO);
+  const dayReminders = remindersForDate(reminders, dateISO);
+  const done =
+    dayEvents.filter((item) => item.completed).length +
+    dayReminders.filter((item) => item.completed).length;
+  const total = dayEvents.length + dayReminders.length;
+  return { done, remaining: Math.max(0, total - done), total };
+}
+
 export function calendarMarksForMonth(
   month: Date,
   events: CalendarEvent[],

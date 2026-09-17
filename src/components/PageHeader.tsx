@@ -1,3 +1,5 @@
+import { TodayWorkProgress } from "@/components/WorkProgressChart";
+
 export function PageHeader({
   title,
   subtitle,
@@ -9,15 +11,18 @@ export function PageHeader({
 }) {
   return (
     <div className="page-header">
-      <div className="min-w-0">
-        <h1 className="page-header-title">{title}</h1>
-        {subtitle ? (
-          <p className="font-subtitle mt-2 max-w-2xl text-[0.9rem] text-ink-muted sm:text-[0.95rem]">
-            {subtitle}
-          </p>
-        ) : null}
+      <div className="page-header-row">
+        <div className="min-w-0">
+          <h1 className="page-header-title">{title}</h1>
+          {subtitle ? (
+            <p className="font-subtitle mt-2 max-w-2xl text-[0.9rem] text-ink-muted sm:text-[0.95rem]">
+              {subtitle}
+            </p>
+          ) : null}
+        </div>
+        {action ? <div className="page-header-actions">{action}</div> : null}
       </div>
-      {action ? <div className="page-header-actions">{action}</div> : null}
+      <TodayWorkProgress />
     </div>
   );
 }

@@ -36,6 +36,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { HydrationGate } from "@/components/HydrationGate";
 import { Modal } from "@/components/Modal";
 import { SendTodayTelegramButton } from "@/components/SendTodayTelegramButton";
+import { WorkProgressChart } from "@/components/WorkProgressChart";
 import { useTrackingStore } from "@/lib/store";
 import type {
   ActivityRepeat,
@@ -74,6 +75,7 @@ import {
   splitClock,
   todayISO,
   weekdayFromISO,
+  workProgressForDate,
 } from "@/lib/utils";
 
 type CreateKind = "event" | "reminder" | null;
@@ -234,6 +236,11 @@ function CalendarContent() {
   const dayReminders = useMemo(
     () => remindersForDate(reminders, selectedISO),
     [reminders, selectedISO]
+  );
+  const workDate = view === "month" ? selectedISO : todayISO();
+  const workProgress = useMemo(
+    () => workProgressForDate(events, reminders, workDate),
+    [events, reminders, workDate]
   );
 
   const folderNameById = useMemo(() => {
@@ -721,6 +728,12 @@ function CalendarContent() {
           )}
         </div>
       </div>
+
+      <WorkProgressChart
+        title={view === "month" ? "ការងារ" : "ការងារថ្ងៃនេះ"}
+        done={workProgress.done}
+        remaining={workProgress.remaining}
+      />
 
       {view === "month" ? (
         <>

@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { CalendarDays, ChevronRight, Folder, FolderPlus, Plus, Trash2 } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
 import { HydrationGate } from "@/components/HydrationGate";
+import { TodayWorkProgress } from "@/components/WorkProgressChart";
 import { Modal } from "@/components/Modal";
 import { StatCard } from "@/components/StatCard";
 import { useTrackingStore } from "@/lib/store";
@@ -456,6 +457,7 @@ function ActivitiesContent() {
             </button>
           ) : null}
         </div>
+        <TodayWorkProgress />
       </div>
 
       {folderPath.length > 0 ? (

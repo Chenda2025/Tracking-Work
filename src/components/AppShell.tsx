@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { CalendarDays, Goal, House, Wallet } from "lucide-react";
 import { ProfileButton } from "@/components/ProfileLoginModal";
 import { TelegramDailyScheduler } from "@/components/TelegramDailyScheduler";
+import { TodayWorkProgress } from "@/components/WorkProgressChart";
 import { useTrackingStore } from "@/lib/store";
 import {
   formatKhmerLunarDateTime,
@@ -108,6 +109,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
             <ProfileButton className="app-sidebar-profile" />
           </div>
+
+          <TodayWorkProgress variant="header" />
 
           <nav className="flex flex-1 flex-col gap-1">
             {links.map(({ href, label, icon: Icon, match }) => {
